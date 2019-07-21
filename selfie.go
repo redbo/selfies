@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"image"
 	"os"
 	"time"
 
@@ -16,10 +15,11 @@ var framec = make(chan []byte)
 
 func run() {
 	win, err := pixelgl.NewWindow(pixelgl.WindowConfig{
-		Bounds:      pixel.R(0, 0, 1600, 900),
+		Bounds:      pixel.R(0, 0, 900, 1600),
 		Undecorated: true,
 		AlwaysOnTop: true,
 		VSync:       false,
+		Monitor:     pixelgl.Monitors()[0],
 	})
 	if err != nil {
 		panic(err)
@@ -28,45 +28,43 @@ func run() {
 	win.SetCursorVisible(false)
 	win.Clear(colornames.Greenyellow)
 	fmt.Println("AM I DOING IT")
-	var sprite *pixel.Sprite = nil
+
+	w := 320
+	h := 240
+	pic := pixel.MakePictureData(pixel.Rect{pixel.Vec{0, 0}, pixel.Vec{320, 240}})
+	sprite := pixel.NewSprite(pic, pic.Bounds())
 
 	for !win.Closed() {
+		t := time.Now()
 		select {
 		case frame := <-framec:
-			w := 320
-			h := 240
-			img := &image.YCbCr{
-				Y:              make([]byte, int(w*h)),
-				Cb:             make([]byte, int(w*h/2)),
-				Cr:             make([]byte, int(w*h/2)),
-				YStride:        int(w),
-				CStride:        int(w / 2),
-				SubsampleRatio: image.YCbCrSubsampleRatio422,
-				Rect:           image.Rectangle{Min: image.Point{0, 0}, Max: image.Point{int(w), int(h)}},
+			fmt.Println("UPDATE")
+			for i := 0; i < int(w*h); i += 2 {
+				y1 := float64(frame[i*2])
+				y2 := float64(frame[i*2+2])
+				cb := float64(frame[i*2+1])
+				cr := float64(frame[i*2+3])
+				pic.Pix[(w*h-1)-i].R = uint8(1.164381*y1 + 1.5960195*cr + -222.921612)
+				pic.Pix[(w*h-1)-i].G = uint8(1.164381*y1 + -0.3917565*cb + -0.8129655*cr + 135.575391)
+				pic.Pix[(w*h-1)-i].B = uint8(1.164381*y1 + 2.0172285*cb + -276.836313)
+				pic.Pix[(w*h-1)-i].A = uint8(255)
+				pic.Pix[(w*h-1)-(i+1)].R = uint8(1.164381*y2 + 1.5960195*cr + -222.921612)
+				pic.Pix[(w*h-1)-(i+1)].G = uint8(1.164381*y2 + -0.3917565*cb + -0.8129655*cr + 135.575391)
+				pic.Pix[(w*h-1)-(i+1)].B = uint8(1.164381*y2 + 2.0172285*cb + -276.836313)
+				pic.Pix[(w*h-1)-(i+1)].A = uint8(255)
 			}
-			for i := 0; i < int(w*h); i++ {
-				img.Y[i] = frame[i*2]
-				if i%2 == 0 {
-					img.Cb[i/2] = frame[i*2+1]
-				} else {
-					img.Cr[i/2] = frame[i*2+1]
-				}
-			}
-			pic := pixel.PictureDataFromImage(img)
+			// sprite.Set(pic, pic.Bounds())
 			sprite = pixel.NewSprite(pic, pic.Bounds())
 		}
-		if sprite != nil {
-			sprite.Draw(win, pixel.IM.Moved(win.Bounds().Center()))
-		}
-		fmt.Println("FRAME")
-		t := time.Now()
+		m := pixel.IM.Moved(win.Bounds().Center()).Scaled(win.Bounds().Center(), 2.8125)
+		sprite.Draw(win, m)
 		win.Update()
 		fmt.Println(time.Since(t))
 	}
 }
 
 func cam() {
-	cam, err := webcam.Open("/dev/video0") // Open webcam
+	cam, err := webcam.Open("/dev/video0")
 	if err != nil {
 		panic(err.Error())
 	}

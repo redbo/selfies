@@ -15,6 +15,7 @@ var framec = make(chan []byte)
 var eimg *ebiten.Image
 
 func update(screen *ebiten.Image) error {
+	var err error
 	w := 320
 	h := 240
 	select {
@@ -36,11 +37,19 @@ func update(screen *ebiten.Image) error {
 				img.Cr[i/2] = frame[i*2+1]
 			}
 		}
-		eimg, err := ebiten.NewImageFromImage(img, ebiten.FilterDefault)
+		eimg, err = ebiten.NewImageFromImage(img, ebiten.FilterDefault)
 		if err != nil {
 			return err
 		}
-		return screen.DrawImage(eimg, &ebiten.DrawImageOptions{})
+	}
+	if ebiten.IsDrawingSkipped() {
+		return nil
+	}
+	err = screen.DrawImage(eimg, &ebiten.DrawImageOptions{
+		GeoM: ebiten.ScaleGeo(2.8125, 2.8125),
+	})
+	if err != nil {
+		return err
 	}
 	return nil
 }
@@ -99,6 +108,8 @@ func cam() {
 func main() {
 	go cam()
 
+	ebiten.SetCursorVisible(false)
+	ebiten.SetFullscreen(true)
 	if err := ebiten.Run(update, 1600, 900, 2, "Your game's title"); err != nil {
 		log.Fatal(err)
 	}
