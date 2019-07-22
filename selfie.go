@@ -26,8 +26,7 @@ func run() {
 	}
 
 	win.SetCursorVisible(false)
-	win.Clear(colornames.Greenyellow)
-	fmt.Println("AM I DOING IT")
+	win.Clear(colornames.Black)
 
 	w := 320
 	h := 240
@@ -38,8 +37,8 @@ func run() {
 		t := time.Now()
 		select {
 		case frame := <-framec:
-			fmt.Println("UPDATE")
 			for i := 0; i < int(w*h); i += 2 {
+				// convert webcam YCbCr to RGBA
 				y1 := float64(frame[i*2])
 				y2 := float64(frame[i*2+2])
 				cb := float64(frame[i*2+1])
@@ -53,7 +52,6 @@ func run() {
 				pic.Pix[(w*h-1)-(i+1)].B = uint8(1.164381*y2 + 2.0172285*cb + -276.836313)
 				pic.Pix[(w*h-1)-(i+1)].A = uint8(255)
 			}
-			// sprite.Set(pic, pic.Bounds())
 			sprite = pixel.NewSprite(pic, pic.Bounds())
 		}
 		m := pixel.IM.Moved(win.Bounds().Center()).Scaled(win.Bounds().Center(), 2.8125)
@@ -97,9 +95,8 @@ func cam() {
 		if err == nil && len(frame) != 0 {
 			select {
 			case framec <- frame:
-			case <-time.After(time.Second / 2):
+			case <-time.After(time.Second / 4):
 			}
-			// Process frame
 
 			// 	fp, err := os.Create("img.jpg")
 			// 	if err != nil {
