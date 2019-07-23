@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"time"
 
 	"github.com/blackjack/webcam"
@@ -112,6 +113,11 @@ func cam() {
 }
 
 func main() {
+	os.Setenv("DISPLAY", ":0")
+	exec.Command("xset s off").Run()
+	exec.Command("xset -dpms").Run()
+	exec.Command("xset s noblank").Run()
+
 	go cam()
 	pixelgl.Run(run)
 }
