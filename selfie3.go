@@ -7,27 +7,28 @@ import (
 	"time"
 
 	"github.com/blackjack/webcam"
-	"github.com/stianeikeland/go-rpio"
 	"github.com/veandco/go-sdl2/sdl"
 )
 
 func main() {
 	os.Setenv("DISPLAY", ":0")
 
-	if err := rpio.Open(); err != nil {
-		log.Fatalf("error opening rpio: %v", err)
-	}
-	defer rpio.Close()
-	button := rpio.Pin(14)
-	button.Input()
-	button.PullDown()
-	button.Detect(rpio.RiseEdge)
-	focus := rpio.Pin(3)
-	focus.Output()
-	focus.High()
-	shutter := rpio.Pin(5)
-	shutter.Output()
-	shutter.High()
+	/*
+		if err := rpio.Open(); err != nil {
+			log.Fatalf("error opening rpio: %v", err)
+		}
+		defer rpio.Close()
+		button := rpio.Pin(14)
+		button.Input()
+		button.PullDown()
+		button.Detect(rpio.RiseEdge)
+		focus := rpio.Pin(3)
+		focus.Output()
+		focus.High()
+		shutter := rpio.Pin(5)
+		shutter.Output()
+		shutter.High()
+	*/
 
 	err := sdl.Init(sdl.INIT_EVERYTHING)
 	if err != nil {
@@ -75,25 +76,54 @@ func main() {
 	}
 	defer tex.Destroy()
 
+	snaps := make([]*sdl.Texture, 4)
+	for i := 0; i < 4; i++ {
+		snaps[i], err = renderer.CreateTexture(sdl.PIXELFORMAT_YUY2, sdl.TEXTUREACCESS_STREAMING, int32(cw), int32(ch))
+		if err != nil {
+			log.Fatalf("error creating texture: %v", err)
+		}
+		defer snaps[i].Destroy()
+	}
+	framecount := 0
+
 	for {
 		t := time.Now()
-		if button.EdgeDetected() { // cleeeck
-			fmt.Println("CLEEEEEECK")
-		}
-		pixels, _, err := tex.Lock(&sdl.Rect{X: 0, Y: 0, W: int32(cw), H: int32(ch)})
+		/*
+			if button.EdgeDetected() { // cleeeeeck
+				fmt.Println("CLEEEEEECK")
+			}
+		*/
 		for {
 			if frame, frameIndex, _ := cam.GetFrame(); frame != nil && len(frame) != 0 {
+				framecount++
+				if framecount%30 == 0 {
+					x := snaps[3]
+					snaps[3] = snaps[2]
+					snaps[2] = snaps[1]
+					snaps[1] = snaps[0]
+					snaps[0] = x
+					snaps[0].Update(&sdl.Rect{X: 0, Y: 0, W: int32(cw), H: int32(ch)}, frame, 2*int(cw))
+					/*
+						if p, _, err := snaps[0].Lock(&sdl.Rect{X: 0, Y: 0, W: int32(cw), H: int32(ch)}); err == nil {
+							copy(p, frame)
+							snaps[0].Unlock()
+						}
+					*/
+					renderer.Copy(snaps[0], &sdl.Rect{X: 10, Y: 20, W: 300, H: 200}, &sdl.Rect{X: 0, Y: 620, W: 440, H: 293})
+					renderer.Copy(snaps[1], &sdl.Rect{X: 10, Y: 20, W: 300, H: 200}, &sdl.Rect{X: 460, Y: 620, W: 440, H: 293})
+					renderer.Copy(snaps[2], &sdl.Rect{X: 10, Y: 20, W: 300, H: 200}, &sdl.Rect{X: 0, Y: 933, W: 440, H: 293})
+					renderer.Copy(snaps[3], &sdl.Rect{X: 10, Y: 20, W: 300, H: 200}, &sdl.Rect{X: 460, Y: 933, W: 440, H: 293})
+				}
 				if err != nil {
 					log.Fatalf("error locking texture: %v", err)
 				}
-				copy(pixels, frame)
+				tex.Update(&sdl.Rect{X: 0, Y: 0, W: int32(cw), H: int32(ch)}, frame, 2*int(cw))
 				cam.ReleaseFrame(frameIndex)
 			} else {
 				break
 			}
 		}
-		tex.Unlock()
-		renderer.Copy(tex, &sdl.Rect{X: 0, Y: 0, W: int32(cw), H: int32(ch)}, &sdl.Rect{X: -30, Y: -22, W: 960, H: 720})
+		renderer.Copy(tex, &sdl.Rect{X: 10, Y: 20, W: 300, H: 200}, &sdl.Rect{X: 0, Y: 0, W: 900, H: 600})
 		renderer.Present()
 		fmt.Println(time.Since(t))
 	}
