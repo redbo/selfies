@@ -2,14 +2,47 @@ package main
 
 import (
 	"fmt"
+	"image"
+	"image/draw"
+	"io/ioutil"
 	"log"
 	"os"
 	"time"
 	"unsafe"
 
 	"github.com/blackjack/webcam"
+	"github.com/golang/freetype/truetype"
 	"github.com/veandco/go-sdl2/sdl"
+	"golang.org/x/image/font"
+	"golang.org/x/image/math/fixed"
 )
+
+func textImage(text string) *image.RGBA {
+	fontBytes, err := ioutil.ReadFile("Raleway-Black.ttf")
+	if err != nil {
+		log.Fatalf("failed to read fong: %v", err)
+	}
+	f, err := truetype.Parse(fontBytes)
+	if err != nil {
+		log.Fatalf("failed to parse font: %v", err)
+	}
+	im := image.NewRGBA(image.Rect(0, 0, 900, 1600))
+	draw.Draw(im, im.Bounds(), image.Transparent, image.ZP, draw.Src)
+	d := &font.Drawer{
+		Dst: im,
+		Src: image.White,
+		Face: truetype.NewFace(f, &truetype.Options{
+			Size: 100,
+			DPI:  300,
+		}),
+	}
+	d.Dot = fixed.Point26_6{
+		X: (fixed.I(900) - d.MeasureString(text)) / 2,
+		Y: fixed.I(800),
+	}
+	d.DrawString(text)
+	return im
+}
 
 func main() {
 	os.Setenv("DISPLAY", ":0")
@@ -65,9 +98,20 @@ func main() {
 		panic("UNSUPPORTED CAM FORMAT")
 	}
 	if err = cam.StartStreaming(); err != nil {
-		log.Fatalf("failed to begin video streaming: %v", err)
+		log.Fatalf("failed to begin cam streaming: %v", err)
 	}
 	cam.SetBufferCount(1)
+
+	text3 := textImage("3")
+	textSurface, err := sdl.CreateRGBSurface(0, 900, 1600, 32, 0, 0, 0, 0)
+	if err != nil {
+		log.Fatalf("error making text surface: %v", err)
+	}
+	dp := textSurface.Pixels()
+	for i := range dp {
+		dp[i] = byte(text3.Pix[i])
+	}
+	copy(dp, text3.Pix)
 
 	for {
 		t := time.Now()
@@ -92,6 +136,7 @@ func main() {
 				break
 			}
 		}
+		textSurface.Blit(&sdl.Rect{X: 0, Y: 0, W: 900, H: 1600}, surface, &sdl.Rect{X: 0, Y: 0, W: 900, H: 1600})
 		window.UpdateSurface()
 		fmt.Println(time.Since(t))
 	}
