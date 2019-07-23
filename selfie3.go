@@ -7,29 +7,41 @@ import (
 	"time"
 
 	"github.com/blackjack/webcam"
+	"github.com/stianeikeland/go-rpio"
 	"github.com/veandco/go-sdl2/sdl"
 )
 
 func main() {
 	os.Setenv("DISPLAY", ":0")
 
-	// try to initialize everything
+	if err := rpio.Open(); err != nil {
+		log.Fatalf("error opening rpio: %v", err)
+	}
+	defer rpio.Close()
+	button := rpio.Pin(14)
+	button.Input()
+	button.PullDown()
+	button.Detect(rpio.RiseEdge)
+	focus := rpio.Pin(3)
+	focus.Output()
+	focus.High()
+	shutter := rpio.Pin(5)
+	shutter.Output()
+	shutter.High()
+
 	err := sdl.Init(sdl.INIT_EVERYTHING)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to initialize sdl: %s\n", err)
-		os.Exit(1)
+		log.Fatalf("failed to initialize sdl: %v", err)
 	}
 	defer sdl.Quit()
+	sdl.DisableScreenSaver()
 
-	// try to create a window
 	window, err := sdl.CreateWindow("SELFIES", sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED,
 		900, 1600, sdl.WINDOW_SHOWN|sdl.WINDOW_FULLSCREEN|sdl.WINDOW_BORDERLESS)
 	if err != nil {
-		fmt.Fprint(os.Stderr, "Failed to create renderer: %s\n", err)
-		os.Exit(2)
+		log.Fatalf("failed to create renderer: %v", err)
 	}
 	defer window.Destroy()
-	sdl.DisableScreenSaver()
 
 	renderer, err := sdl.CreateRenderer(window, -1, sdl.RENDERER_ACCELERATED)
 	if err != nil {
@@ -40,20 +52,20 @@ func main() {
 
 	cam, err := webcam.Open("/dev/video0")
 	if err != nil {
-		panic(err.Error())
+		log.Fatalf("failed to open video device: %v", err)
 	}
 	defer cam.Close()
 
 	f, cw, ch, err := cam.SetImageFormat(1448695129, uint32(320), uint32(240))
 	fmt.Println(cw, ch)
 	if err != nil {
-		panic(err.Error())
+		log.Fatalf("failed to set video format: %v", err)
 	}
 	if f != 1448695129 {
 		panic("UNSUPPORTED CAM FORMAT")
 	}
 	if err = cam.StartStreaming(); err != nil {
-		panic(err.Error())
+		log.Fatalf("failed to begin video streaming: %v", err)
 	}
 	cam.SetBufferCount(1)
 
@@ -65,6 +77,9 @@ func main() {
 
 	for {
 		t := time.Now()
+		if button.EdgeDetected() { // cleeeck
+			fmt.Println("CLEEEEEECK")
+		}
 		pixels, _, err := tex.Lock(&sdl.Rect{X: 0, Y: 0, W: int32(cw), H: int32(ch)})
 		for {
 			if frame, frameIndex, _ := cam.GetFrame(); frame != nil && len(frame) != 0 {
@@ -78,7 +93,7 @@ func main() {
 			}
 		}
 		tex.Unlock()
-		renderer.Copy(tex, &sdl.Rect{X: 0, Y: 0, W: int32(cw), H: int32(ch)}, &sdl.Rect{X: 0, Y: 0, W: 900, H: 675})
+		renderer.Copy(tex, &sdl.Rect{X: 0, Y: 0, W: int32(cw), H: int32(ch)}, &sdl.Rect{X: -30, Y: -22, W: 960, H: 720})
 		renderer.Present()
 		fmt.Println(time.Since(t))
 	}
