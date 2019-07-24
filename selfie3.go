@@ -1,9 +1,17 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
+	"image"
+	"image/draw"
+	"image/jpeg"
+	"io/ioutil"
 	"log"
+	"net/http"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strconv"
 	"time"
 
@@ -12,6 +20,49 @@ import (
 	"github.com/veandco/go-sdl2/sdl"
 	"github.com/veandco/go-sdl2/ttf"
 )
+
+var re = regexp.MustCompile(`<td align="center">(\w+.JPG)</td></tr>`)
+
+var ic = make(chan *image.RGBA)
+
+func fetchCamera() {
+	for {
+		time.Sleep(time.Second * 2)
+		resp, err := http.Get("http://192.168.4.1/photo")
+		if err != nil {
+			return //continue
+		}
+		data, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return //continue
+		}
+		resp.Body.Close()
+
+		for _, res := range re.FindAllSubmatch(data, len(data)) {
+			filename := string(res[1])
+			if _, err := os.Stat(filepath.Join("snaps", filename)); err == nil {
+				continue
+			}
+			resp, err := http.Get("http://192.168.4.1/download?fname=" + filename + "&fdir=100OLYMP&folderFlag=0")
+			if err != nil {
+				continue
+			}
+			data, err := ioutil.ReadAll(resp.Body)
+			if err != nil {
+				continue
+			}
+			resp.Body.Close()
+			img, err := jpeg.Decode(bytes.NewBuffer(data))
+			if err != nil {
+				continue
+			}
+			rgbimg := image.NewRGBA(img.Bounds())
+			draw.Draw(rgbimg, rgbimg.Bounds(), img, image.ZP, draw.Over)
+			ic <- rgbimg
+			ioutil.WriteFile(filepath.Join("snaps", filename), data, os.ModePerm)
+		}
+	}
+}
 
 func main() {
 	os.Setenv("DISPLAY", ":0")
@@ -31,15 +82,13 @@ func main() {
 	shutter.Output()
 	shutter.High()
 
-	err := sdl.Init(sdl.INIT_EVERYTHING)
-	if err != nil {
+	if err := sdl.Init(sdl.INIT_EVERYTHING); err != nil {
 		log.Fatalf("failed to initialize sdl: %v", err)
 	}
 	defer sdl.Quit()
 	sdl.DisableScreenSaver()
 
-	err = ttf.Init()
-	if err != nil {
+	if err := ttf.Init(); err != nil {
 		log.Fatalf("failed to initialize ttf: %v", err)
 	}
 	defer ttf.Quit()
@@ -84,8 +133,7 @@ func main() {
 	defer tex.Destroy()
 	snaps := make([]*sdl.Texture, 4)
 	for i := range snaps {
-		snaps[i], err = renderer.CreateTexture(sdl.PIXELFORMAT_YUY2, sdl.TEXTUREACCESS_STREAMING, int32(cw), int32(ch))
-		if err != nil {
+		if snaps[i], err = renderer.CreateTexture(sdl.PIXELFORMAT_RGBA8888, sdl.TEXTUREACCESS_STREAMING, 300, 200); err != nil {
 			log.Fatalf("error creating texture: %v", err)
 		}
 		defer snaps[i].Destroy()
@@ -101,8 +149,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("failed to render text: %v", err)
 		}
-		texes[i], err = renderer.CreateTextureFromSurface(surf)
-		if err != nil {
+		if texes[i], err = renderer.CreateTextureFromSurface(surf); err != nil {
 			log.Fatalf("failed to create texture from surface: %v", err)
 		}
 		surf.Free()
@@ -112,6 +159,9 @@ func main() {
 	var buttonPressed time.Time
 	buttonPressed = time.Now() // TODO TMP
 
+	go fetchCamera()
+
+	fmt.Println("STARTING FRAMES")
 	for framecount := 0; ; framecount++ {
 		t := time.Now()
 		if button.EdgeDetected() { // cleeeeeck
@@ -122,15 +172,17 @@ func main() {
 		for {
 			if frame, _ := cam.ReadFrame(); frame != nil && len(frame) != 0 {
 				if framecount%50 == 0 {
-					x := snaps[3]
-					copy(snaps[1:4], snaps[0:3])
-					snaps[0] = x
-					snaps[0].Update(&sdl.Rect{X: 0, Y: 0, W: int32(cw), H: int32(ch)}, frame, 2*int(cw))
 				}
 				tex.Update(&sdl.Rect{X: 0, Y: 0, W: int32(cw), H: int32(ch)}, frame, 2*int(cw))
 			} else {
 				break
 			}
+		}
+		select {
+		case snap := <-ic:
+			snaps[0], snaps[1], snaps[2], snaps[3] = snaps[3], snaps[0], snaps[1], snaps[2]
+			snaps[0].Update(&sdl.Rect{X: 0, Y: 0, W: int32(cw), H: int32(ch)}, snap.Pix, snap.Stride)
+		default:
 		}
 		renderer.Copy(tex, &sdl.Rect{X: 1, Y: 14, W: 318, H: 212}, &sdl.Rect{X: 0, Y: 0, W: 900, H: 600})
 		renderer.Copy(snaps[0], &sdl.Rect{X: 1, Y: 14, W: 318, H: 212}, &sdl.Rect{X: 0, Y: 800, W: 430, H: 287})
