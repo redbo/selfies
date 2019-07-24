@@ -8,6 +8,7 @@ import (
 	"image/jpeg"
 	"io/ioutil"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -27,9 +28,11 @@ var re = regexp.MustCompile(`<td align="center">(\w+.JPG)</td></tr>`)
 var ic = make(chan *image.RGBA)
 
 func fetchCamera() {
+	client := http.Client{Transport: &http.Transport{Dial: &net.Dialer{Timeout: 2 * time.Second, KeepAlive: time.Second}.Dial}}
+
 	for {
 		time.Sleep(time.Second * 2)
-		resp, err := http.Get("http://192.168.4.1/photo")
+		resp, err := client.Get("http://192.168.4.1/photo")
 		if err != nil {
 			continue
 		}
@@ -46,7 +49,7 @@ func fetchCamera() {
 				continue
 			}
 			fmt.Println("Downloading frame")
-			resp, err := http.Get("http://192.168.4.1/download?fname=" + filename + "&fdir=100OLYMP&folderFlag=0")
+			resp, err := client.Get("http://192.168.4.1/download?fname=" + filename + "&fdir=100OLYMP&folderFlag=0")
 			if err != nil {
 				continue
 			}
