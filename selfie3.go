@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/blackjack/webcam"
+	"github.com/nfnt/resize"
 	"github.com/stianeikeland/go-rpio"
 	"github.com/veandco/go-sdl2/sdl"
 	"github.com/veandco/go-sdl2/ttf"
@@ -30,19 +31,21 @@ func fetchCamera() {
 		time.Sleep(time.Second * 2)
 		resp, err := http.Get("http://192.168.4.1/photo")
 		if err != nil {
-			return //continue
+			continue
 		}
 		data, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
-			return //continue
+			continue
 		}
 		resp.Body.Close()
+		fmt.Println("Got index body")
 
 		for _, res := range re.FindAllSubmatch(data, len(data)) {
 			filename := string(res[1])
 			if _, err := os.Stat(filepath.Join("snaps", filename)); err == nil {
 				continue
 			}
+			fmt.Println("Downloading frame")
 			resp, err := http.Get("http://192.168.4.1/download?fname=" + filename + "&fdir=100OLYMP&folderFlag=0")
 			if err != nil {
 				continue
@@ -56,8 +59,9 @@ func fetchCamera() {
 			if err != nil {
 				continue
 			}
-			rgbimg := image.NewRGBA(img.Bounds())
-			draw.Draw(rgbimg, rgbimg.Bounds(), img, image.ZP, draw.Over)
+			rgbimg := image.NewRGBA(image.Rect(0, 0, 300, 200))
+			draw.Draw(rgbimg, rgbimg.Bounds(), resize.Resize(300, 200, img, resize.Bilinear), image.ZP, draw.Over)
+			fmt.Println("Sending frame down")
 			ic <- rgbimg
 			ioutil.WriteFile(filepath.Join("snaps", filename), data, os.ModePerm)
 		}
@@ -163,7 +167,7 @@ func main() {
 
 	fmt.Println("STARTING FRAMES")
 	for framecount := 0; ; framecount++ {
-		t := time.Now()
+		// t := time.Now()
 		if button.EdgeDetected() { // cleeeeeck
 			fmt.Println("CLEEEEEECK")
 			buttonPressed = time.Now()
@@ -221,6 +225,6 @@ func main() {
 			}
 		}
 		renderer.Present()
-		fmt.Println(time.Since(t))
+		//fmt.Println(time.Since(t))
 	}
 }
