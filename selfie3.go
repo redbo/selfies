@@ -28,7 +28,14 @@ var re = regexp.MustCompile(`<td align="center">(\w+.JPG)</td></tr>`)
 var ic = make(chan *image.RGBA)
 
 func fetchCamera() {
-	client := http.Client{Transport: &http.Transport{Dial: &net.Dialer{Timeout: 2 * time.Second, KeepAlive: time.Second}.Dial}}
+	client := http.Client{
+		Transport: &http.Transport{
+			Dial: (&net.Dialer{
+				Timeout:   2 * time.Second,
+				KeepAlive: time.Second,
+			}).Dial,
+		},
+	}
 
 	for {
 		time.Sleep(time.Second * 2)
@@ -41,7 +48,6 @@ func fetchCamera() {
 			continue
 		}
 		resp.Body.Close()
-		fmt.Println("Got index body")
 
 		for _, res := range re.FindAllSubmatch(data, len(data)) {
 			filename := string(res[1])
@@ -62,11 +68,15 @@ func fetchCamera() {
 			if err != nil {
 				continue
 			}
-			rgbimg := image.NewRGBA(image.Rect(0, 0, 300, 200))
-			draw.Draw(rgbimg, rgbimg.Bounds(), resize.Resize(300, 200, img, resize.Bilinear), image.ZP, draw.Over)
+			img = resize.Resize(900, 675, img, resize.Bilinear)
+			rgbimg := image.NewRGBA(image.Rect(0, 0, 900, 600))
+			draw.Draw(rgbimg, rgbimg.Bounds(), img, image.Pt(0, (img.Bounds().Dy()-600)/2), draw.Over)
 			fmt.Println("Sending frame down")
 			ic <- rgbimg
-			ioutil.WriteFile(filepath.Join("snaps", filename), data, os.ModePerm)
+			if fp, err := os.Create(filepath.Join("snaps", filename)); err == nil {
+				jpeg.Encode(fp, rgbimg, &jpeg.Options{Quality: 90})
+				fp.Close()
+			}
 		}
 	}
 }
@@ -178,8 +188,6 @@ func main() {
 		renderer.Clear()
 		for {
 			if frame, _ := cam.ReadFrame(); frame != nil && len(frame) != 0 {
-				if framecount%50 == 0 {
-				}
 				tex.Update(&sdl.Rect{X: 0, Y: 0, W: int32(cw), H: int32(ch)}, frame, 2*int(cw))
 			} else {
 				break
@@ -188,7 +196,7 @@ func main() {
 		select {
 		case snap := <-ic:
 			snaps[0], snaps[1], snaps[2], snaps[3] = snaps[3], snaps[0], snaps[1], snaps[2]
-			snaps[0].Update(&sdl.Rect{X: 0, Y: 0, W: int32(cw), H: int32(ch)}, snap.Pix, snap.Stride)
+			snaps[0].Update(&sdl.Rect{X: 0, Y: 0, W: 300, H: 200}, snap.Pix, snap.Stride)
 		default:
 		}
 		renderer.Copy(tex, &sdl.Rect{X: 1, Y: 14, W: 318, H: 212}, &sdl.Rect{X: 0, Y: 0, W: 900, H: 600})
