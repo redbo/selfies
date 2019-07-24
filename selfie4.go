@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"image"
+	"image/draw"
 	"io/ioutil"
 	"log"
 	"os"
@@ -95,6 +96,8 @@ func main() {
 		log.Fatalf("failed to begin cam streaming: %v", err)
 	}
 	cam.SetBufferCount(1)
+	var buttonPressed time.Time
+	buttonPressed = time.Now() // TODO TMP
 
 	for {
 		t := time.Now()
@@ -103,6 +106,7 @@ func main() {
 				fmt.Println("CLEEEEEECK")
 			}
 		*/
+		draw.Draw(im, image.Rect(0, 0, 900, 1600), image.Black, image.ZP, draw.Over)
 		for {
 			if frame, frameIndex, _ := cam.GetFrame(); frame != nil && len(frame) != 0 {
 				frameSurface, err := sdl.CreateRGBSurface(0, 320, 240, 32, 0, 0, 0, 0)
@@ -119,11 +123,31 @@ func main() {
 				break
 			}
 		}
-		d.Dot = fixed.Point26_6{
-			X: (fixed.I(900) - d.MeasureString("3")) / 2,
-			Y: fixed.I(800),
+		if !buttonPressed.IsZero() {
+			if time.Since(buttonPressed) > time.Millisecond*4750 {
+				buttonPressed = time.Time{}
+			} else if time.Since(buttonPressed) > time.Millisecond*4500 {
+				draw.Draw(im, image.Rect(0, 0, 900, 1600), image.White, image.ZP, draw.Over)
+			} else if time.Since(buttonPressed) > time.Millisecond*3000 {
+				d.Dot = fixed.Point26_6{
+					X: (fixed.I(900) - d.MeasureString("1")) / 2,
+					Y: fixed.I(800),
+				}
+				d.DrawString("1")
+			} else if time.Since(buttonPressed) > time.Millisecond*1500 {
+				d.Dot = fixed.Point26_6{
+					X: (fixed.I(900) - d.MeasureString("2")) / 2,
+					Y: fixed.I(800),
+				}
+				d.DrawString("2")
+			} else {
+				d.Dot = fixed.Point26_6{
+					X: (fixed.I(900) - d.MeasureString("3")) / 2,
+					Y: fixed.I(800),
+				}
+				d.DrawString("3")
+			}
 		}
-		d.DrawString("3")
 		window.UpdateSurface()
 		fmt.Println(time.Since(t))
 	}
