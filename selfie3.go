@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/blackjack/webcam"
+	"github.com/stianeikeland/go-rpio"
 	"github.com/veandco/go-sdl2/sdl"
 	"github.com/veandco/go-sdl2/ttf"
 )
@@ -14,22 +16,20 @@ import (
 func main() {
 	os.Setenv("DISPLAY", ":0")
 
-	/*
-		if err := rpio.Open(); err != nil {
-			log.Fatalf("error opening rpio: %v", err)
-		}
-		defer rpio.Close()
-		button := rpio.Pin(14)
-		button.Input()
-		button.PullUp()
-		button.Detect(rpio.FallEdge)
-		focus := rpio.Pin(3)
-		focus.Output()
-		focus.High()
-		shutter := rpio.Pin(5)
-		shutter.Output()
-		shutter.High()
-	*/
+	if err := rpio.Open(); err != nil {
+		log.Fatalf("error opening rpio: %v", err)
+	}
+	defer rpio.Close()
+	button := rpio.Pin(14)
+	button.Input()
+	button.PullUp()
+	button.Detect(rpio.FallEdge)
+	focus := rpio.Pin(3)
+	focus.Output()
+	focus.High()
+	shutter := rpio.Pin(5)
+	shutter.Output()
+	shutter.High()
 
 	err := sdl.Init(sdl.INIT_EVERYTHING)
 	if err != nil {
@@ -91,29 +91,34 @@ func main() {
 		defer snaps[i].Destroy()
 	}
 
-	font, err := ttf.OpenFont("Raleway-Black.ttf", 800)
+	font, err := ttf.OpenFont("Raleway-Black.ttf", 600)
 	if err != nil {
 		log.Fatalf("failed to read font: %v", err)
 	}
-	surf3, err := font.RenderUTF8Blended("3", sdl.Color{R: 255, G: 255, B: 255, A: 255})
-	if err != nil {
-		log.Fatalf("failed to render text: %v", err)
+	texes := make([]*sdl.Texture, 3)
+	for i := 0; i < 3; i++ {
+		surf, err := font.RenderUTF8Blended(strconv.Itoa(i+1), sdl.Color{R: 255, G: 255, B: 255, A: 255})
+		if err != nil {
+			log.Fatalf("failed to render text: %v", err)
+		}
+		texes[i], err = renderer.CreateTextureFromSurface(surf)
+		if err != nil {
+			log.Fatalf("failed to create texture from surface: %v", err)
+		}
+		surf.Free()
+		texes[i].SetBlendMode(sdl.BLENDMODE_BLEND)
 	}
-	tex3, err := renderer.CreateTextureFromSurface(surf3)
-	if err != nil {
-		log.Fatalf("failed to create texture from surface: %v", err)
-	}
-	tex3.SetBlendMode(sdl.BLENDMODE_BLEND)
-	_, _, texWidth, texHeight, _ := tex3.Query()
+
+	var buttonPressed time.Time
+	buttonPressed = time.Now() // TODO TMP
 
 	for framecount := 0; ; framecount++ {
 		t := time.Now()
+		if button.EdgeDetected() { // cleeeeeck
+			fmt.Println("CLEEEEEECK")
+			buttonPressed = time.Now()
+		}
 		renderer.Clear()
-		/*
-			if button.EdgeDetected() { // cleeeeeck
-				fmt.Println("CLEEEEEECK")
-			}
-		*/
 		for {
 			if frame, _ := cam.ReadFrame(); frame != nil && len(frame) != 0 {
 				if framecount%50 == 0 {
@@ -132,36 +137,38 @@ func main() {
 		renderer.Copy(snaps[1], &sdl.Rect{X: 1, Y: 14, W: 318, H: 212}, &sdl.Rect{X: 470, Y: 800, W: 430, H: 287})
 		renderer.Copy(snaps[2], &sdl.Rect{X: 1, Y: 14, W: 318, H: 212}, &sdl.Rect{X: 0, Y: 1237, W: 430, H: 287})
 		renderer.Copy(snaps[3], &sdl.Rect{X: 1, Y: 14, W: 318, H: 212}, &sdl.Rect{X: 470, Y: 1237, W: 430, H: 287})
-		renderer.Copy(tex3, &sdl.Rect{X: 0, Y: 0, W: texWidth, H: texHeight}, &sdl.Rect{X: (900 - texWidth) / 2, Y: (1600 - texHeight) / 2, W: texWidth, H: texHeight})
 
+		if !buttonPressed.IsZero() {
+			if time.Since(buttonPressed) > time.Millisecond*4750 {
+				buttonPressed = time.Time{}
+				buttonPressed = time.Now() // TODO TMP
+				shutter.High()
+			} else if time.Since(buttonPressed) > time.Millisecond*4500 {
+				renderer.SetDrawColor(255, 255, 255, 255)
+				renderer.Clear()
+				renderer.SetDrawColor(0, 0, 0, 255)
+				shutter.Low()
+			} else if time.Since(buttonPressed) > time.Millisecond*3000 {
+				focus.Low()
+				_, _, texWidth, texHeight, _ := texes[0].Query()
+				renderer.Copy(texes[0],
+					&sdl.Rect{X: 0, Y: 0, W: texWidth, H: texHeight},
+					&sdl.Rect{X: (900 - texWidth) / 2, Y: (1600 - texHeight) / 2, W: texWidth, H: texHeight})
+			} else if time.Since(buttonPressed) > time.Millisecond*1500 {
+				focus.High()
+				_, _, texWidth, texHeight, _ := texes[1].Query()
+				renderer.Copy(texes[1],
+					&sdl.Rect{X: 0, Y: 0, W: texWidth, H: texHeight},
+					&sdl.Rect{X: (900 - texWidth) / 2, Y: (1600 - texHeight) / 2, W: texWidth, H: texHeight})
+			} else {
+				focus.Low()
+				_, _, texWidth, texHeight, _ := texes[2].Query()
+				renderer.Copy(texes[2],
+					&sdl.Rect{X: 0, Y: 0, W: texWidth, H: texHeight},
+					&sdl.Rect{X: (900 - texWidth) / 2, Y: (1600 - texHeight) / 2, W: texWidth, H: texHeight})
+			}
+		}
 		renderer.Present()
 		fmt.Println(time.Since(t))
 	}
 }
-
-/*
-	img := &image.YCbCr{
-		Y:              make([]byte, int(w*h)),
-		Cb:             make([]byte, int(w*h/2)),
-		Cr:             make([]byte, int(w*h/2)),
-		YStride:        int(w),
-		CStride:        int(w / 2),
-		SubsampleRatio: image.YCbCrSubsampleRatio422,
-		Rect:           image.Rectangle{Min: image.Point{0, 0}, Max: image.Point{int(w), int(h)}},
-	}
-	for i := 0; i < int(w*h); i++ {
-		img.Y[i] = frame[i*2]
-		if i%2 == 0 {
-			img.Cb[i/2] = frame[i*2+1]
-		} else {
-			img.Cr[i/2] = frame[i*2+1]
-		}
-	}
-	fp, err := os.Create("img.jpg")
-	if err != nil {
-		panic(err)
-	}
-	defer fp.Close()
-	jpeg.Encode(fp, img, &jpeg.Options{Quality: 95})
-	fp.Close()
-*/
