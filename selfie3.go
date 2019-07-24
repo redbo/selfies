@@ -8,6 +8,7 @@ import (
 
 	"github.com/blackjack/webcam"
 	"github.com/veandco/go-sdl2/sdl"
+	"github.com/veandco/go-sdl2/ttf"
 )
 
 func main() {
@@ -36,6 +37,12 @@ func main() {
 	}
 	defer sdl.Quit()
 	sdl.DisableScreenSaver()
+
+	err = ttf.Init()
+	if err != nil {
+		log.Fatalf("failed to initialize ttf: %v", err)
+	}
+	defer ttf.Quit()
 
 	window, err := sdl.CreateWindow("SELFIES", sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED,
 		900, 1600, sdl.WINDOW_SHOWN|sdl.WINDOW_FULLSCREEN|sdl.WINDOW_BORDERLESS)
@@ -75,55 +82,58 @@ func main() {
 		log.Fatalf("error creating texture: %v", err)
 	}
 	defer tex.Destroy()
-
 	snaps := make([]*sdl.Texture, 4)
-	for i := 0; i < 4; i++ {
+	for i := range snaps {
 		snaps[i], err = renderer.CreateTexture(sdl.PIXELFORMAT_YUY2, sdl.TEXTUREACCESS_STREAMING, int32(cw), int32(ch))
 		if err != nil {
 			log.Fatalf("error creating texture: %v", err)
 		}
 		defer snaps[i].Destroy()
 	}
-	framecount := 0
 
-	for {
+	font, err := ttf.OpenFont("Raleway-Black.ttf", 800)
+	if err != nil {
+		log.Fatalf("failed to read font: %v", err)
+	}
+	surf3, err := font.RenderUTF8Blended("3", sdl.Color{R: 255, G: 255, B: 255, A: 255})
+	if err != nil {
+		log.Fatalf("failed to render text: %v", err)
+	}
+	tex3, err := renderer.CreateTextureFromSurface(surf3)
+	if err != nil {
+		log.Fatalf("failed to create texture from surface: %v", err)
+	}
+	tex3.SetBlendMode(sdl.BLENDMODE_BLEND)
+	_, _, texWidth, texHeight, _ := tex3.Query()
+
+	for framecount := 0; ; framecount++ {
 		t := time.Now()
+		renderer.Clear()
 		/*
 			if button.EdgeDetected() { // cleeeeeck
 				fmt.Println("CLEEEEEECK")
 			}
 		*/
 		for {
-			if frame, frameIndex, _ := cam.GetFrame(); frame != nil && len(frame) != 0 {
-				framecount++
-				if framecount%30 == 0 {
+			if frame, _ := cam.ReadFrame(); frame != nil && len(frame) != 0 {
+				if framecount%50 == 0 {
 					x := snaps[3]
-					snaps[3] = snaps[2]
-					snaps[2] = snaps[1]
-					snaps[1] = snaps[0]
+					copy(snaps[1:4], snaps[0:3])
 					snaps[0] = x
 					snaps[0].Update(&sdl.Rect{X: 0, Y: 0, W: int32(cw), H: int32(ch)}, frame, 2*int(cw))
-					/*
-						if p, _, err := snaps[0].Lock(&sdl.Rect{X: 0, Y: 0, W: int32(cw), H: int32(ch)}); err == nil {
-							copy(p, frame)
-							snaps[0].Unlock()
-						}
-					*/
-					renderer.Copy(snaps[0], &sdl.Rect{X: 10, Y: 20, W: 300, H: 200}, &sdl.Rect{X: 0, Y: 620, W: 440, H: 293})
-					renderer.Copy(snaps[1], &sdl.Rect{X: 10, Y: 20, W: 300, H: 200}, &sdl.Rect{X: 460, Y: 620, W: 440, H: 293})
-					renderer.Copy(snaps[2], &sdl.Rect{X: 10, Y: 20, W: 300, H: 200}, &sdl.Rect{X: 0, Y: 933, W: 440, H: 293})
-					renderer.Copy(snaps[3], &sdl.Rect{X: 10, Y: 20, W: 300, H: 200}, &sdl.Rect{X: 460, Y: 933, W: 440, H: 293})
-				}
-				if err != nil {
-					log.Fatalf("error locking texture: %v", err)
 				}
 				tex.Update(&sdl.Rect{X: 0, Y: 0, W: int32(cw), H: int32(ch)}, frame, 2*int(cw))
-				cam.ReleaseFrame(frameIndex)
 			} else {
 				break
 			}
 		}
-		renderer.Copy(tex, &sdl.Rect{X: 10, Y: 20, W: 300, H: 200}, &sdl.Rect{X: 0, Y: 0, W: 900, H: 600})
+		renderer.Copy(tex, &sdl.Rect{X: 1, Y: 14, W: 318, H: 212}, &sdl.Rect{X: 0, Y: 0, W: 900, H: 600})
+		renderer.Copy(snaps[0], &sdl.Rect{X: 1, Y: 14, W: 318, H: 212}, &sdl.Rect{X: 0, Y: 800, W: 430, H: 287})
+		renderer.Copy(snaps[1], &sdl.Rect{X: 1, Y: 14, W: 318, H: 212}, &sdl.Rect{X: 470, Y: 800, W: 430, H: 287})
+		renderer.Copy(snaps[2], &sdl.Rect{X: 1, Y: 14, W: 318, H: 212}, &sdl.Rect{X: 0, Y: 1237, W: 430, H: 287})
+		renderer.Copy(snaps[3], &sdl.Rect{X: 1, Y: 14, W: 318, H: 212}, &sdl.Rect{X: 470, Y: 1237, W: 430, H: 287})
+		renderer.Copy(tex3, &sdl.Rect{X: 0, Y: 0, W: texWidth, H: texHeight}, &sdl.Rect{X: (900 - texWidth) / 2, Y: (1600 - texHeight) / 2, W: texWidth, H: texHeight})
+
 		renderer.Present()
 		fmt.Println(time.Since(t))
 	}
