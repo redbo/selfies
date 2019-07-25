@@ -68,11 +68,12 @@ func fetchCamera() {
 			if err != nil {
 				continue
 			}
-			img = resize.Resize(900, 675, img, resize.Bilinear)
-			rgbimg := image.NewRGBA(image.Rect(0, 0, 900, 600))
-			draw.Draw(rgbimg, rgbimg.Bounds(), img, image.Pt(0, (img.Bounds().Dy()-600)/2), draw.Over)
+			rgbimg := image.NewRGBA(image.Rect(0, 0, 300, 200))
+			draw.Draw(rgbimg, rgbimg.Bounds(), resize.Resize(300, 225, img, resize.Bicubic), image.Pt(0, 12), draw.Over)
 			fmt.Println("Sending frame down")
 			ic <- rgbimg
+			printimg := image.NewRGBA(image.Rect(0, 0, 900, 600))
+			draw.Draw(printimg, printimg.Bounds(), resize.Resize(900, 675, img, resize.Bicubic), image.Pt(0, 37), draw.Over)
 			if fp, err := os.Create(filepath.Join("snaps", filename)); err == nil {
 				jpeg.Encode(fp, rgbimg, &jpeg.Options{Quality: 90})
 				fp.Close()
@@ -150,7 +151,7 @@ func main() {
 	defer tex.Destroy()
 	snaps := make([]*sdl.Texture, 4)
 	for i := range snaps {
-		if snaps[i], err = renderer.CreateTexture(sdl.PIXELFORMAT_RGBA8888, sdl.TEXTUREACCESS_STREAMING, 300, 200); err != nil {
+		if snaps[i], err = renderer.CreateTexture(sdl.PIXELFORMAT_ABGR8888, sdl.TEXTUREACCESS_STREAMING, 300, 200); err != nil {
 			log.Fatalf("error creating texture: %v", err)
 		}
 		defer snaps[i].Destroy()
@@ -178,7 +179,6 @@ func main() {
 
 	go fetchCamera()
 
-	fmt.Println("STARTING FRAMES")
 	for framecount := 0; ; framecount++ {
 		// t := time.Now()
 		if button.EdgeDetected() { // cleeeeeck
@@ -200,10 +200,10 @@ func main() {
 		default:
 		}
 		renderer.Copy(tex, &sdl.Rect{X: 1, Y: 14, W: 318, H: 212}, &sdl.Rect{X: 0, Y: 0, W: 900, H: 600})
-		renderer.Copy(snaps[0], &sdl.Rect{X: 1, Y: 14, W: 318, H: 212}, &sdl.Rect{X: 0, Y: 800, W: 430, H: 287})
-		renderer.Copy(snaps[1], &sdl.Rect{X: 1, Y: 14, W: 318, H: 212}, &sdl.Rect{X: 470, Y: 800, W: 430, H: 287})
-		renderer.Copy(snaps[2], &sdl.Rect{X: 1, Y: 14, W: 318, H: 212}, &sdl.Rect{X: 0, Y: 1237, W: 430, H: 287})
-		renderer.Copy(snaps[3], &sdl.Rect{X: 1, Y: 14, W: 318, H: 212}, &sdl.Rect{X: 470, Y: 1237, W: 430, H: 287})
+		renderer.Copy(snaps[0], &sdl.Rect{X: 0, Y: 0, W: 300, H: 200}, &sdl.Rect{X: 0, Y: 800, W: 430, H: 287})
+		renderer.Copy(snaps[1], &sdl.Rect{X: 0, Y: 0, W: 300, H: 200}, &sdl.Rect{X: 470, Y: 800, W: 430, H: 287})
+		renderer.Copy(snaps[2], &sdl.Rect{X: 0, Y: 0, W: 300, H: 200}, &sdl.Rect{X: 0, Y: 1237, W: 430, H: 287})
+		renderer.Copy(snaps[3], &sdl.Rect{X: 0, Y: 0, W: 300, H: 200}, &sdl.Rect{X: 470, Y: 1237, W: 430, H: 287})
 
 		if !buttonPressed.IsZero() {
 			if time.Since(buttonPressed) > time.Millisecond*4750 {
