@@ -212,14 +212,17 @@ func main() {
 		renderer.Copy(snaps[3], &sdl.Rect{X: 0, Y: 0, W: 300, H: 200}, &sdl.Rect{X: 470, Y: 1237, W: 430, H: 287})
 
 		if !buttonPressed.IsZero() {
-			if time.Since(buttonPressed) > time.Millisecond*4750 {
-				renderer.SetDrawColor(0, 0, 0, 255)
+			if time.Since(buttonPressed) > time.Millisecond*4500 {
+				// unpress button
 				buttonPressed = time.Time{}
-			} else if time.Since(buttonPressed) > time.Millisecond*4500 {
+				// flash a white screen
 				renderer.SetDrawColor(255, 255, 255, 255)
 				renderer.Clear()
 				renderer.Present()
+				renderer.SetDrawColor(0, 0, 0, 255)
+				// trigger dslr
 				shutter.Low()
+				// re-initialize webcam for high-res shot
 				cam.StopStreaming()
 				cam.Close()
 				if cam, err = initCam(2304, 1536); err != nil {
@@ -244,15 +247,17 @@ func main() {
 							img.Cr[i/2] = frame[i*2+1]
 						}
 					}
+					if fp, err := os.Create(filepath.Join("snaps", fmt.Sprintf("%d.jpg", time.Now().Unix()))); err == nil {
+						jpeg.Encode(fp, img, &jpeg.Options{Quality: 90})
+						fp.Close()
+					}
+					// we want to get a 300x200 RGBA snap to display
 					snap := image.NewRGBA(image.Rect(0, 0, 300, 200))
 					draw.Draw(snap, snap.Bounds(), resize.Resize(300, 200, img, resize.Bicubic), image.ZP, draw.Over)
 					snaps[0], snaps[1], snaps[2], snaps[3] = snaps[3], snaps[0], snaps[1], snaps[2]
 					snaps[0].Update(&sdl.Rect{X: 0, Y: 0, W: 300, H: 200}, snap.Pix, snap.Stride)
-					if fp, err := os.Create(filepath.Join("snaps", fmt.Printf("%d.jpg", time.Now().Unix()))); err == nil {
-						jpeg.Encode(fp, rgbimg, &jpeg.Options{Quality: 90})
-						fp.Close()
-					}
 				}
+				// downgrade webcam to streaming size
 				cam.StopStreaming()
 				cam.Close()
 				if cam, err = initCam(320, 240); err != nil {
