@@ -125,26 +125,32 @@ func main() {
 	defer renderer.Destroy()
 	renderer.Clear()
 
-	cam, err := webcam.Open("/dev/video0")
+	initCam := func(width, height uint32) (*webcam.Webcam, error) {
+		cam, err := webcam.Open("/dev/video0")
+		if err != nil {
+			return nil, err
+		}
+		if f, cw, ch, err := cam.SetImageFormat(1448695129, width, height); err != nil {
+			cam.Close()
+			return nil, err
+		} else if f != 1448695129 || cw != width || ch != height {
+			cam.Close()
+			return nil, fmt.Errorf("Unknown pixel format %d (%d/%d)", f, cw, ch)
+		}
+		if err = cam.SetBufferCount(1); err != nil {
+			cam.Close()
+			return nil, err
+		}
+		return cam, cam.StartStreaming()
+	}
+
+	cam, err := initCam(320, 240)
 	if err != nil {
-		log.Fatalf("failed to open video device: %v", err)
+		log.Fatalf("failed to initialize webcam: %v", err)
 	}
 	defer cam.Close()
 
-	f, cw, ch, err := cam.SetImageFormat(1448695129, uint32(320), uint32(240))
-	fmt.Println(cw, ch)
-	if err != nil {
-		log.Fatalf("failed to set video format: %v", err)
-	}
-	if f != 1448695129 {
-		panic("UNSUPPORTED CAM FORMAT")
-	}
-	if err = cam.StartStreaming(); err != nil {
-		log.Fatalf("failed to begin video streaming: %v", err)
-	}
-	cam.SetBufferCount(1)
-
-	tex, err := renderer.CreateTexture(sdl.PIXELFORMAT_YUY2, sdl.TEXTUREACCESS_STREAMING, int32(cw), int32(ch))
+	tex, err := renderer.CreateTexture(sdl.PIXELFORMAT_YUY2, sdl.TEXTUREACCESS_STREAMING, int32(320), int32(240))
 	if err != nil {
 		log.Fatalf("error creating texture: %v", err)
 	}
@@ -188,7 +194,7 @@ func main() {
 		renderer.Clear()
 		for {
 			if frame, _ := cam.ReadFrame(); frame != nil && len(frame) != 0 {
-				tex.Update(&sdl.Rect{X: 0, Y: 0, W: int32(cw), H: int32(ch)}, frame, 2*int(cw))
+				tex.Update(&sdl.Rect{X: 0, Y: 0, W: int32(320), H: int32(240)}, frame, 2*int(320))
 			} else {
 				break
 			}
@@ -207,14 +213,51 @@ func main() {
 
 		if !buttonPressed.IsZero() {
 			if time.Since(buttonPressed) > time.Millisecond*4750 {
+				renderer.SetDrawColor(0, 0, 0, 255)
 				buttonPressed = time.Time{}
-				buttonPressed = time.Now() // TODO TMP
-				shutter.High()
 			} else if time.Since(buttonPressed) > time.Millisecond*4500 {
 				renderer.SetDrawColor(255, 255, 255, 255)
 				renderer.Clear()
-				renderer.SetDrawColor(0, 0, 0, 255)
+				renderer.Present()
 				shutter.Low()
+				cam.StopStreaming()
+				cam.Close()
+				if cam, err = initCam(2304, 1536); err != nil {
+					log.Fatalf("failed to re-initialize webcam: %v", err)
+				}
+				cam.WaitForFrame(10)
+				if frame, _ := cam.ReadFrame(); frame != nil && len(frame) != 0 {
+					img := &image.YCbCr{
+						Y:              make([]byte, int(2304*1536)),
+						Cb:             make([]byte, int((2304*1536)/2)),
+						Cr:             make([]byte, int((2304*1536)/2)),
+						YStride:        int(2304),
+						CStride:        int(2304 / 2),
+						SubsampleRatio: image.YCbCrSubsampleRatio422,
+						Rect:           image.Rectangle{Min: image.Point{0, 0}, Max: image.Point{int(2304), int(1536)}},
+					}
+					for i := 0; i < int(2304*1536); i++ {
+						img.Y[i] = frame[i*2]
+						if i%2 == 0 {
+							img.Cb[i/2] = frame[i*2+1]
+						} else {
+							img.Cr[i/2] = frame[i*2+1]
+						}
+					}
+					snap := image.NewRGBA(image.Rect(0, 0, 300, 200))
+					draw.Draw(snap, snap.Bounds(), resize.Resize(300, 200, img, resize.Bicubic), image.ZP, draw.Over)
+					snaps[0], snaps[1], snaps[2], snaps[3] = snaps[3], snaps[0], snaps[1], snaps[2]
+					snaps[0].Update(&sdl.Rect{X: 0, Y: 0, W: 300, H: 200}, snap.Pix, snap.Stride)
+					if fp, err := os.Create(filepath.Join("snaps", fmt.Printf("%d.jpg", time.Now().Unix()))); err == nil {
+						jpeg.Encode(fp, rgbimg, &jpeg.Options{Quality: 90})
+						fp.Close()
+					}
+				}
+				cam.StopStreaming()
+				cam.Close()
+				if cam, err = initCam(320, 240); err != nil {
+					log.Fatalf("failed to re-re-initialize webcam: %v", err)
+				}
 			} else if time.Since(buttonPressed) > time.Millisecond*3000 {
 				focus.Low()
 				_, _, texWidth, texHeight, _ := texes[0].Query()
