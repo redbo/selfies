@@ -11,17 +11,21 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"time"
 
 	"github.com/blackjack/webcam"
+	"github.com/jacobsa/go-serial/serial"
 	"github.com/nfnt/resize"
-	"github.com/stianeikeland/go-rpio"
 	"github.com/veandco/go-sdl2/sdl"
 	"github.com/veandco/go-sdl2/ttf"
 )
+
+var buttonPressed time.Time
+var buttonPress = make(chan time.Time)
 
 var re = regexp.MustCompile(`<td align="center">(\w+.JPG)</td></tr>`)
 
@@ -84,21 +88,6 @@ func fetchCamera() {
 
 func main() {
 	os.Setenv("DISPLAY", ":0")
-
-	if err := rpio.Open(); err != nil {
-		log.Fatalf("error opening rpio: %v", err)
-	}
-	defer rpio.Close()
-	button := rpio.Pin(14)
-	button.Input()
-	button.PullUp()
-	button.Detect(rpio.FallEdge)
-	focus := rpio.Pin(3)
-	focus.Output()
-	focus.High()
-	shutter := rpio.Pin(5)
-	shutter.Output()
-	shutter.High()
 
 	if err := sdl.Init(sdl.INIT_EVERYTHING); err != nil {
 		log.Fatalf("failed to initialize sdl: %v", err)
@@ -180,16 +169,27 @@ func main() {
 		texes[i].SetBlendMode(sdl.BLENDMODE_BLEND)
 	}
 
-	var buttonPressed time.Time
-	buttonPressed = time.Now() // TODO TMP
+	arduino, err := serial.Open(serial.OpenOptions{PortName: "/dev/ttyUSB0", BaudRate: 9600})
+	if err != nil {
+		log.Fatalf("serial.Open: %v", err)
+	}
+	defer arduino.Close()
+	go func() {
+		b := make([]byte, 1)
+		for true {
+			arduino.Read(b)
+			if b[0] == 'S' {
+				buttonPress <- time.Now()
+			}
+		}
+	}()
 
-	go fetchCamera()
+	// buttonPressed = time.Now() // TESTY TEST
 
 	for framecount := 0; ; framecount++ {
-		// t := time.Now()
-		if button.EdgeDetected() { // cleeeeeck
+		select {
+		case buttonPressed := <-buttonPress:
 			fmt.Println("CLEEEEEECK")
-			buttonPressed = time.Now()
 		}
 		renderer.Clear()
 		for {
@@ -212,16 +212,16 @@ func main() {
 		renderer.Copy(snaps[3], &sdl.Rect{X: 0, Y: 0, W: 300, H: 200}, &sdl.Rect{X: 470, Y: 1237, W: 430, H: 287})
 
 		if !buttonPressed.IsZero() {
-			if time.Since(buttonPressed) > time.Millisecond*4500 {
+			if time.Since(buttonPressed) > time.Millisecond*5000 {
 				// unpress button
 				buttonPressed = time.Time{}
+				arduino.Write([]byte{'R', '\n'})
+			} else if time.Since(buttonPressed) > time.Millisecond*4500 {
 				// flash a white screen
 				renderer.SetDrawColor(255, 255, 255, 255)
 				renderer.Clear()
 				renderer.Present()
 				renderer.SetDrawColor(0, 0, 0, 255)
-				// trigger dslr
-				shutter.Low()
 				// re-initialize webcam for high-res shot
 				cam.StopStreaming()
 				cam.Close()
@@ -229,6 +229,7 @@ func main() {
 					log.Fatalf("failed to re-initialize webcam: %v", err)
 				}
 				cam.WaitForFrame(10)
+				arduino.Write([]byte{'S', '\n'})
 				if frame, _ := cam.ReadFrame(); frame != nil && len(frame) != 0 {
 					img := &image.YCbCr{
 						Y:              make([]byte, int(2304*1536)),
@@ -247,10 +248,15 @@ func main() {
 							img.Cr[i/2] = frame[i*2+1]
 						}
 					}
-					if fp, err := os.Create(filepath.Join("snaps", fmt.Sprintf("%d.jpg", time.Now().Unix()))); err == nil {
-						jpeg.Encode(fp, img, &jpeg.Options{Quality: 90})
-						fp.Close()
-					}
+					go func() {
+						filename := filepath.Join("snaps", fmt.Sprintf("%d.jpg", time.Now().Unix()))
+						if fp, err := os.Create(filename); err == nil {
+							jpeg.Encode(fp, img, &jpeg.Options{Quality: 90})
+							fp.Close()
+							exec.Command("/usr/bin/obexftp", "--nopath", "--noconn", "--uuid", "none",
+								"--bluetooth", "C4:30:18:19:C6:3D", "--channel", "4", "-p", filename).Run()
+						}
+					}()
 					// we want to get a 300x200 RGBA snap to display
 					snap := image.NewRGBA(image.Rect(0, 0, 300, 200))
 					draw.Draw(snap, snap.Bounds(), resize.Resize(300, 200, img, resize.Bicubic), image.ZP, draw.Over)
@@ -264,19 +270,18 @@ func main() {
 					log.Fatalf("failed to re-re-initialize webcam: %v", err)
 				}
 			} else if time.Since(buttonPressed) > time.Millisecond*3000 {
-				focus.Low()
+				arduino.Write([]byte{'F', '\n'})
 				_, _, texWidth, texHeight, _ := texes[0].Query()
 				renderer.Copy(texes[0],
 					&sdl.Rect{X: 0, Y: 0, W: texWidth, H: texHeight},
 					&sdl.Rect{X: (900 - texWidth) / 2, Y: (1600 - texHeight) / 2, W: texWidth, H: texHeight})
 			} else if time.Since(buttonPressed) > time.Millisecond*1500 {
-				focus.High()
+				arduino.Write([]byte{'L', '\n'})
 				_, _, texWidth, texHeight, _ := texes[1].Query()
 				renderer.Copy(texes[1],
 					&sdl.Rect{X: 0, Y: 0, W: texWidth, H: texHeight},
 					&sdl.Rect{X: (900 - texWidth) / 2, Y: (1600 - texHeight) / 2, W: texWidth, H: texHeight})
 			} else {
-				focus.Low()
 				_, _, texWidth, texHeight, _ := texes[2].Query()
 				renderer.Copy(texes[2],
 					&sdl.Rect{X: 0, Y: 0, W: texWidth, H: texHeight},
@@ -284,6 +289,5 @@ func main() {
 			}
 		}
 		renderer.Present()
-		//fmt.Println(time.Since(t))
 	}
 }
