@@ -178,7 +178,7 @@ func main() {
 		b := make([]byte, 1)
 		for true {
 			arduino.Read(b)
-			if b[0] == 'S' {
+			if b[0] == '2' {
 				buttonPress <- time.Now()
 			}
 		}
@@ -229,7 +229,7 @@ func main() {
 					log.Fatalf("failed to re-initialize webcam: %v", err)
 				}
 				cam.WaitForFrame(10)
-				arduino.Write([]byte{'S', '\n'})
+				arduino.Write([]byte{'B', '\n'})
 				if frame, _ := cam.ReadFrame(); frame != nil && len(frame) != 0 {
 					img := &image.YCbCr{
 						Y:              make([]byte, int(2304*1536)),
@@ -270,13 +270,13 @@ func main() {
 					log.Fatalf("failed to re-re-initialize webcam: %v", err)
 				}
 			} else if time.Since(buttonPressed) > time.Millisecond*3000 {
-				arduino.Write([]byte{'F', '\n'})
+				arduino.Write([]byte{'A', '\n'})
 				_, _, texWidth, texHeight, _ := texes[0].Query()
 				renderer.Copy(texes[0],
 					&sdl.Rect{X: 0, Y: 0, W: texWidth, H: texHeight},
 					&sdl.Rect{X: (900 - texWidth) / 2, Y: (1600 - texHeight) / 2, W: texWidth, H: texHeight})
 			} else if time.Since(buttonPressed) > time.Millisecond*1500 {
-				arduino.Write([]byte{'L', '\n'})
+				arduino.Write([]byte{'C', '\n'})
 				_, _, texWidth, texHeight, _ := texes[1].Query()
 				renderer.Copy(texes[1],
 					&sdl.Rect{X: 0, Y: 0, W: texWidth, H: texHeight},
