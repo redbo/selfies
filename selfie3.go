@@ -20,11 +20,7 @@ import (
 	"github.com/veandco/go-sdl2/ttf"
 )
 
-var buttonPress = make(chan time.Time)
-
 var re = regexp.MustCompile(`<td align="center">(\w+.JPG)</td></tr>`)
-
-var ic = make(chan *image.RGBA)
 
 func main() {
 	os.Setenv("DISPLAY", ":0")
@@ -85,6 +81,7 @@ func main() {
 	}
 	defer tex.Destroy()
 	snaps := make([]*sdl.Texture, 4)
+	snapFiles := make([]string, 4)
 	for i := range snaps {
 		if snaps[i], err = renderer.CreateTexture(sdl.PIXELFORMAT_ABGR8888, sdl.TEXTUREACCESS_STREAMING, 300, 200); err != nil {
 			log.Fatalf("error creating texture: %v", err)
@@ -113,13 +110,14 @@ func main() {
 	if err != nil {
 		log.Fatalf("serial.Open: %v", err)
 	}
+	var buttonPress = make(chan byte)
 	defer arduino.Close()
 	go func() {
 		b := make([]byte, 1)
 		for true {
 			arduino.Read(b)
-			if b[0] == '2' {
-				buttonPress <- time.Now()
+			if b[0] > ' ' {
+				buttonPress <- b[0]
 			}
 		}
 	}()
@@ -129,8 +127,13 @@ func main() {
 
 	for framecount := 0; ; framecount++ {
 		select {
-		case buttonPressed = <-buttonPress:
-			fmt.Println("CLEEEEEECK")
+		case button := <-buttonPress:
+			if button == '2' {
+				buttonPressed = time.Now()
+			} else if button == '2' && snapfiles[0] != "" {
+				exec.Command("/usr/bin/obexftp", "--nopath", "--noconn", "--uuid", "none",
+					"--bluetooth", "C4:30:18:19:C6:3D", "--channel", "4", "-p", snapfiles[0]).Run()
+			}
 		}
 		renderer.Clear()
 		for {
@@ -139,12 +142,6 @@ func main() {
 			} else {
 				break
 			}
-		}
-		select {
-		case snap := <-ic:
-			snaps[0], snaps[1], snaps[2], snaps[3] = snaps[3], snaps[0], snaps[1], snaps[2]
-			snaps[0].Update(&sdl.Rect{X: 0, Y: 0, W: 300, H: 200}, snap.Pix, snap.Stride)
-		default:
 		}
 		renderer.Copy(tex, &sdl.Rect{X: 1, Y: 14, W: 318, H: 212}, &sdl.Rect{X: 0, Y: 0, W: 900, H: 600})
 		renderer.Copy(snaps[0], &sdl.Rect{X: 0, Y: 0, W: 300, H: 200}, &sdl.Rect{X: 0, Y: 800, W: 430, H: 287})
@@ -189,20 +186,17 @@ func main() {
 							img.Cr[i/2] = frame[i*2+1]
 						}
 					}
-					go func() {
-						filename := filepath.Join("snaps", fmt.Sprintf("%d.jpg", time.Now().Unix()))
-						if fp, err := os.Create(filename); err == nil {
-							jpeg.Encode(fp, img, &jpeg.Options{Quality: 90})
-							fp.Close()
-							exec.Command("/usr/bin/obexftp", "--nopath", "--noconn", "--uuid", "none",
-								"--bluetooth", "C4:30:18:19:C6:3D", "--channel", "4", "-p", filename).Run()
-						}
-					}()
+					filename := filepath.Join("snaps", fmt.Sprintf("%d.jpg", time.Now().Unix()))
+					if fp, err := os.Create(filename); err == nil {
+						jpeg.Encode(fp, img, &jpeg.Options{Quality: 90})
+						fp.Close()
+					}
 					// we want to get a 300x200 RGBA snap to display
 					snap := image.NewRGBA(image.Rect(0, 0, 300, 200))
 					draw.Draw(snap, snap.Bounds(), resize.Resize(300, 200, img, resize.Bicubic), image.ZP, draw.Over)
 					snaps[0], snaps[1], snaps[2], snaps[3] = snaps[3], snaps[0], snaps[1], snaps[2]
 					snaps[0].Update(&sdl.Rect{X: 0, Y: 0, W: 300, H: 200}, snap.Pix, snap.Stride)
+					snapfiles[0], snapfiles[1], snapfiles[2], snapfiles[3] = filename, snapfiles[0], snapfiles[1], snapfiles[2]
 				}
 				// downgrade webcam to streaming size
 				cam.StopStreaming()
