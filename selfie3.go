@@ -1,15 +1,11 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
 	"image"
 	"image/draw"
 	"image/jpeg"
-	"io/ioutil"
 	"log"
-	"net"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,67 +20,11 @@ import (
 	"github.com/veandco/go-sdl2/ttf"
 )
 
-var buttonPressed time.Time
 var buttonPress = make(chan time.Time)
 
 var re = regexp.MustCompile(`<td align="center">(\w+.JPG)</td></tr>`)
 
 var ic = make(chan *image.RGBA)
-
-func fetchCamera() {
-	client := http.Client{
-		Transport: &http.Transport{
-			Dial: (&net.Dialer{
-				Timeout:   2 * time.Second,
-				KeepAlive: time.Second,
-			}).Dial,
-		},
-	}
-
-	for {
-		time.Sleep(time.Second * 2)
-		resp, err := client.Get("http://192.168.4.1/photo")
-		if err != nil {
-			continue
-		}
-		data, err := ioutil.ReadAll(resp.Body)
-		if err != nil {
-			continue
-		}
-		resp.Body.Close()
-
-		for _, res := range re.FindAllSubmatch(data, len(data)) {
-			filename := string(res[1])
-			if _, err := os.Stat(filepath.Join("snaps", filename)); err == nil {
-				continue
-			}
-			fmt.Println("Downloading frame")
-			resp, err := client.Get("http://192.168.4.1/download?fname=" + filename + "&fdir=100OLYMP&folderFlag=0")
-			if err != nil {
-				continue
-			}
-			data, err := ioutil.ReadAll(resp.Body)
-			if err != nil {
-				continue
-			}
-			resp.Body.Close()
-			img, err := jpeg.Decode(bytes.NewBuffer(data))
-			if err != nil {
-				continue
-			}
-			rgbimg := image.NewRGBA(image.Rect(0, 0, 300, 200))
-			draw.Draw(rgbimg, rgbimg.Bounds(), resize.Resize(300, 225, img, resize.Bicubic), image.Pt(0, 12), draw.Over)
-			fmt.Println("Sending frame down")
-			ic <- rgbimg
-			printimg := image.NewRGBA(image.Rect(0, 0, 900, 600))
-			draw.Draw(printimg, printimg.Bounds(), resize.Resize(900, 675, img, resize.Bicubic), image.Pt(0, 37), draw.Over)
-			if fp, err := os.Create(filepath.Join("snaps", filename)); err == nil {
-				jpeg.Encode(fp, rgbimg, &jpeg.Options{Quality: 90})
-				fp.Close()
-			}
-		}
-	}
-}
 
 func main() {
 	os.Setenv("DISPLAY", ":0")
@@ -184,11 +124,12 @@ func main() {
 		}
 	}()
 
+	buttonPressed := time.Time{}
 	// buttonPressed = time.Now() // TESTY TEST
 
 	for framecount := 0; ; framecount++ {
 		select {
-		case buttonPressed := <-buttonPress:
+		case buttonPressed = <-buttonPress:
 			fmt.Println("CLEEEEEECK")
 		}
 		renderer.Clear()
