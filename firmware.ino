@@ -21,6 +21,9 @@ void loop() {
     case 'A': case 'B': case 'C': case 'D':
       digitalWrite(relayPin[c - 'A'], HIGH);
       break;
+    case 'a': case 'b': case 'c': case 'd':
+      digitalWrite(relayPin[c - 'A'], LOW);
+      break;
     case 'R':
       for (int i = 0; i < LEN(relayPin); i++) {
         digitalWrite(relayPin[i], LOW);
@@ -48,5 +51,7 @@ void loop() {
     anyPressed = anyPressed && buttonPressed[i];
   }
   digitalWrite(ledPin, anyPressed ? HIGH : LOW);
+
+  delay(5);
 }
 
