@@ -9,7 +9,10 @@ const int ledPin = 13;
 void setup() {
   for (int i = 0; i < LEN(buttonPin); i++) {
     pinMode(buttonPin[i], INPUT);
-    digitalWrite(buttonPin[i], HIGH); // turn on pullup resistor
+    digitalWrite(buttonPin[i], HIGH); // enable pullup
+  }
+  for (int i = 0; i < LEN(relayPin); i++) {
+    pinMode(relayPin[i], OUTPUT);
   }
   pinMode(ledPin, OUTPUT);
   Serial.begin(9600);
@@ -51,7 +54,5 @@ void loop() {
     anyPressed = anyPressed && buttonPressed[i];
   }
   digitalWrite(ledPin, anyPressed ? HIGH : LOW);
-
-  delay(5);
 }
 
