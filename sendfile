@@ -1,0 +1,2 @@
+obexftp --nopath --noconn --uuid none --bluetooth C4:30:18:19:C6:3D --channel 4 -p $1
+
