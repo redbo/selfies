@@ -1,0 +1,13 @@
+
+for X in /sys/bus/usb/devices/*/authorized; do 
+  [ -e "$i" ] || continue
+  sudo sh -c "echo 0 > $X"
+  sudo sh -c "echo 1 > $X"
+done
+
+for i in /sys/bus/usb/drivers/*/*:*; do
+  [ -e "$i" ] || continue
+  echo "${i##*/}" > "${i%/*}/unbind"
+  echo "${i##*/}" > "${i%/*}/bind"
+done
+
