@@ -13,6 +13,7 @@ void setup() {
   }
   for (int i = 0; i < LEN(relayPin); i++) {
     pinMode(relayPin[i], OUTPUT);
+    digitalWrite(relayPin[i], HIGH);
   }
   pinMode(ledPin, OUTPUT);
   Serial.begin(9600);
@@ -22,14 +23,14 @@ void loop() {
   if (Serial.available() > 0) {
     switch (int c = Serial.read()) {
     case 'A': case 'B': case 'C': case 'D':
-      digitalWrite(relayPin[c - 'A'], HIGH);
+      digitalWrite(relayPin[c - 'A'], LOW);
       break;
     case 'a': case 'b': case 'c': case 'd':
-      digitalWrite(relayPin[c - 'A'], LOW);
+      digitalWrite(relayPin[c - 'a'], HIGH);
       break;
     case 'R':
       for (int i = 0; i < LEN(relayPin); i++) {
-        digitalWrite(relayPin[i], LOW);
+        digitalWrite(relayPin[i], HIGH);
       }
       break;
     }
@@ -55,4 +56,3 @@ void loop() {
   }
   digitalWrite(ledPin, anyPressed ? HIGH : LOW);
 }
-

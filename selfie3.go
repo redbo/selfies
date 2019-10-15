@@ -129,17 +129,23 @@ func main() {
 	}()
 
 	buttonPressed := time.Time{}
-	// buttonPressed = time.Now() // TESTY TEST
+	printCooldown := time.Time{}
+	var lights, focus bool
 
 	for framecount := 0; ; framecount++ {
 		select {
 		case button := <-buttonPress:
 			if button == '2' {
+				arduino.Write([]byte{'R', '\r', '\n'})
 				buttonPressed = time.Now()
-			} else if button == '2' && snapfiles[0] != "" {
-				exec.Command("/usr/bin/obexftp", "--nopath", "--noconn", "--uuid", "none",
-					"--bluetooth", "C4:30:18:19:C6:3D", "--channel", "4", "-p", snapfiles[0]).Run()
+			} else if button == '3' && snapfiles[0] != "" && time.Since(printCooldown) > time.Second*30 {
+				printCooldown = time.Now()
+				go func() {
+					exec.Command("/usr/bin/obexftp", "--nopath", "--noconn", "--uuid", "none",
+						"--bluetooth", "C4:30:18:19:C6:3D", "--channel", "4", "-p", snapfiles[0]).Run()
+				}()
 			}
+		default:
 		}
 		renderer.Clear()
 		for {
@@ -156,11 +162,7 @@ func main() {
 		renderer.Copy(snaps[3], &sdl.Rect{X: 0, Y: 0, W: 300, H: 200}, &sdl.Rect{X: 470, Y: 1237, W: 430, H: 287})
 
 		if !buttonPressed.IsZero() {
-			if time.Since(buttonPressed) > time.Millisecond*5000 {
-				// unpress button
-				buttonPressed = time.Time{}
-				arduino.Write([]byte{'R', '\r', '\n'})
-			} else if time.Since(buttonPressed) > time.Millisecond*4500 {
+			if time.Since(buttonPressed) > time.Millisecond*4500 {
 				// flash a white screen
 				renderer.SetDrawColor(255, 255, 255, 255)
 				renderer.Clear()
@@ -173,7 +175,7 @@ func main() {
 					log.Fatalf("failed to re-initialize webcam: %v", err)
 				}
 				cam.WaitForFrame(10)
-				arduino.Write([]byte{'B', '\r', '\n'})
+				arduino.Write([]byte{'C', '\r', '\n'})
 				if frame, _ := cam.ReadFrame(); frame != nil && len(frame) != 0 {
 					img := &image.YCbCr{
 						Y:              make([]byte, int(2304*1536)),
@@ -210,14 +212,23 @@ func main() {
 				if cam, err = initCam(320, 240); err != nil {
 					log.Fatalf("failed to re-re-initialize webcam: %v", err)
 				}
+				// unpress button
+				lights, focus, buttonPressed = false, false, time.Time{}
+				arduino.Write([]byte{'R', '\r', '\n'})
 			} else if time.Since(buttonPressed) > time.Millisecond*3000 {
-				arduino.Write([]byte{'A', '\r', '\n'})
+				if !focus {
+					focus = true
+					arduino.Write([]byte{'A', '\r', '\n'})
+				}
 				_, _, texWidth, texHeight, _ := texes[0].Query()
 				renderer.Copy(texes[0],
 					&sdl.Rect{X: 0, Y: 0, W: texWidth, H: texHeight},
 					&sdl.Rect{X: (900 - texWidth) / 2, Y: (1600 - texHeight) / 2, W: texWidth, H: texHeight})
 			} else if time.Since(buttonPressed) > time.Millisecond*1500 {
-				arduino.Write([]byte{'C', '\r', '\n'})
+				if !lights {
+					lights = true
+					arduino.Write([]byte{'B', '\r', '\n'})
+				}
 				_, _, texWidth, texHeight, _ := texes[1].Query()
 				renderer.Copy(texes[1],
 					&sdl.Rect{X: 0, Y: 0, W: texWidth, H: texHeight},
