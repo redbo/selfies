@@ -81,7 +81,7 @@ func main() {
 	}
 	defer tex.Destroy()
 	snaps := make([]*sdl.Texture, 4)
-	snapFiles := make([]string, 4)
+	snapfiles := make([]string, 4)
 	for i := range snaps {
 		if snaps[i], err = renderer.CreateTexture(sdl.PIXELFORMAT_ABGR8888, sdl.TEXTUREACCESS_STREAMING, 300, 200); err != nil {
 			log.Fatalf("error creating texture: %v", err)
@@ -106,7 +106,13 @@ func main() {
 		texes[i].SetBlendMode(sdl.BLENDMODE_BLEND)
 	}
 
-	arduino, err := serial.Open(serial.OpenOptions{PortName: "/dev/ttyUSB0", BaudRate: 9600})
+	arduino, err := serial.Open(serial.OpenOptions{
+		PortName:        "/dev/ttyUSB0",
+		BaudRate:        9600,
+		DataBits:        8,
+		StopBits:        1,
+		MinimumReadSize: 1,
+	})
 	if err != nil {
 		log.Fatalf("serial.Open: %v", err)
 	}
