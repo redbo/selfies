@@ -6,8 +6,10 @@ import (
 	"image/draw"
 	"image/jpeg"
 	"log"
+	"math/rand"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -42,6 +44,8 @@ func main() {
 		log.Fatalf("failed to create renderer: %v", err)
 	}
 	defer window.Destroy()
+	sdl.WarpMouseGlobal(900, 1600)
+	sdl.ShowCursor(sdl.DISABLE)
 
 	renderer, err := sdl.CreateRenderer(window, -1, sdl.RENDERER_ACCELERATED)
 	if err != nil {
@@ -69,13 +73,13 @@ func main() {
 		return cam, cam.StartStreaming()
 	}
 
-	cam, err := initCam(320, 240)
+	cam, err := initCam(1280, 720)
 	if err != nil {
 		log.Fatalf("failed to initialize webcam: %v", err)
 	}
 	defer cam.Close()
 
-	tex, err := renderer.CreateTexture(sdl.PIXELFORMAT_YUY2, sdl.TEXTUREACCESS_STREAMING, int32(320), int32(240))
+	tex, err := renderer.CreateTexture(sdl.PIXELFORMAT_YUY2, sdl.TEXTUREACCESS_STREAMING, int32(1280), int32(720))
 	if err != nil {
 		log.Fatalf("error creating texture: %v", err)
 	}
@@ -83,13 +87,16 @@ func main() {
 	snaps := make([]*sdl.Texture, 4)
 	snapfiles := make([]string, 4)
 	for i := range snaps {
-		if snaps[i], err = renderer.CreateTexture(sdl.PIXELFORMAT_ABGR8888, sdl.TEXTUREACCESS_STREAMING, 300, 200); err != nil {
+		if snaps[i], err = renderer.CreateTexture(sdl.PIXELFORMAT_ABGR8888, sdl.TEXTUREACCESS_STREAMING, 430, 287); err != nil {
 			log.Fatalf("error creating texture: %v", err)
 		}
 		defer snaps[i].Destroy()
 	}
-
-	font, err := ttf.OpenFont("Raleway-Black.ttf", 600)
+	usr, err := user.Current()
+	if err != nil {
+		log.Fatalf("failed to get home dir: %v", err)
+	}
+	font, err := ttf.OpenFont(filepath.Join(usr.HomeDir, "selfies/Raleway-Black.ttf"), 600)
 	if err != nil {
 		log.Fatalf("failed to read font: %v", err)
 	}
@@ -106,6 +113,36 @@ func main() {
 		texes[i].SetBlendMode(sdl.BLENDMODE_BLEND)
 	}
 
+	font, err = ttf.OpenFont(filepath.Join(usr.HomeDir, "selfies/Raleway-Black.ttf"), 30)
+	if err != nil {
+		log.Fatalf("failed to read font: %v", err)
+	}
+	surf, err := font.RenderUTF8Blended("Print", sdl.Color{R: 255, G: 255, B: 0, A: 255})
+	if err != nil {
+		log.Fatalf("failed to render text: %v", err)
+	}
+	printtexWidth := surf.W
+	printtexHeight := surf.H
+	printtex, err := renderer.CreateTextureFromSurface(surf)
+	if err != nil {
+		log.Fatalf("failed to create texture from surface: %v", err)
+	}
+	surf.Free()
+	printtex.SetBlendMode(sdl.BLENDMODE_BLEND)
+
+	surf, err = font.RenderUTF8Blended("Printing", sdl.Color{R: 255, G: 0, B: 0, A: 255})
+	if err != nil {
+		log.Fatalf("failed to render text: %v", err)
+	}
+	printingtexWidth := surf.W
+	printingtexHeight := surf.H
+	printingtex, err := renderer.CreateTextureFromSurface(surf)
+	if err != nil {
+		log.Fatalf("failed to create texture from surface: %v", err)
+	}
+	surf.Free()
+	printingtex.SetBlendMode(sdl.BLENDMODE_BLEND)
+
 	arduino, err := serial.Open(serial.OpenOptions{
 		PortName:        "/dev/ttyUSB0",
 		BaudRate:        9600,
@@ -116,13 +153,15 @@ func main() {
 	if err != nil {
 		log.Fatalf("serial.Open: %v", err)
 	}
+	arduino.Write([]byte{'R', '\r', '\n'})
 	var buttonPress = make(chan byte)
 	defer arduino.Close()
 	go func() {
+		start := time.Now()
 		b := make([]byte, 1)
 		for true {
 			arduino.Read(b)
-			if b[0] > ' ' {
+			if b[0] > ' ' && time.Since(start) > 10*time.Second {
 				buttonPress <- b[0]
 			}
 		}
@@ -131,6 +170,9 @@ func main() {
 	buttonPressed := time.Time{}
 	printCooldown := time.Time{}
 	var lights, focus bool
+	var frame []byte
+	var printnotify = make(chan bool)
+	var printing bool
 
 	for framecount := 0; ; framecount++ {
 		select {
@@ -141,52 +183,64 @@ func main() {
 			} else if button == '3' && snapfiles[0] != "" && time.Since(printCooldown) > time.Second*30 {
 				printCooldown = time.Now()
 				go func() {
+					printnotify <- true
 					exec.Command("/usr/bin/obexftp", "--nopath", "--noconn", "--uuid", "none",
 						"--bluetooth", "C4:30:18:19:C6:3D", "--channel", "4", "-p", snapfiles[0]).Run()
+					printnotify <- false
 				}()
 			}
+		case printing = <-printnotify:
 		default:
 		}
 		renderer.Clear()
 		for {
-			if frame, _ := cam.ReadFrame(); frame != nil && len(frame) != 0 {
-				tex.Update(&sdl.Rect{X: 0, Y: 0, W: int32(320), H: int32(240)}, frame, 2*int(320))
+			if f, _ := cam.ReadFrame(); f != nil && len(f) != 0 {
+				frame = f
+				tex.Update(&sdl.Rect{X: 0, Y: 0, W: int32(1280), H: int32(720)}, frame, 2*int(1280))
 			} else {
 				break
 			}
 		}
-		renderer.Copy(tex, &sdl.Rect{X: 1, Y: 14, W: 318, H: 212}, &sdl.Rect{X: 0, Y: 0, W: 900, H: 600})
-		renderer.Copy(snaps[0], &sdl.Rect{X: 0, Y: 0, W: 300, H: 200}, &sdl.Rect{X: 0, Y: 800, W: 430, H: 287})
-		renderer.Copy(snaps[1], &sdl.Rect{X: 0, Y: 0, W: 300, H: 200}, &sdl.Rect{X: 470, Y: 800, W: 430, H: 287})
-		renderer.Copy(snaps[2], &sdl.Rect{X: 0, Y: 0, W: 300, H: 200}, &sdl.Rect{X: 0, Y: 1237, W: 430, H: 287})
-		renderer.Copy(snaps[3], &sdl.Rect{X: 0, Y: 0, W: 300, H: 200}, &sdl.Rect{X: 470, Y: 1237, W: 430, H: 287})
+		if printing {
+			renderer.SetDrawColor(uint8(rand.Int()%255), uint8(rand.Int()%255), uint8(rand.Int()%255), 255)
+			renderer.FillRect(&sdl.Rect{X: 0, Y: 800, W: 430, H: 287})
+			renderer.Copy(printingtex,
+				&sdl.Rect{X: 0, Y: 0, W: printingtexWidth, H: printingtexHeight},
+				&sdl.Rect{X: (430 - printingtexWidth) / 2, Y: (800 - printingtexHeight), W: printingtexWidth, H: printingtexHeight})
+			renderer.Copy(snaps[0], &sdl.Rect{X: 2, Y: 2, W: 430, H: 287}, &sdl.Rect{X: 10, Y: 810, W: 410, H: 267})
+		} else {
+			renderer.SetDrawColor(255, 255, 0, 255)
+			renderer.FillRect(&sdl.Rect{X: 0, Y: 800, W: 430, H: 287})
+			renderer.Copy(printtex,
+				&sdl.Rect{X: 0, Y: 0, W: printtexWidth, H: printtexHeight},
+				&sdl.Rect{X: (430 - printtexWidth) / 2, Y: (800 - printtexHeight), W: printtexWidth, H: printtexHeight})
+			renderer.Copy(snaps[0], &sdl.Rect{X: 2, Y: 2, W: 430, H: 287}, &sdl.Rect{X: 2, Y: 802, W: 426, H: 283})
+		}
+		renderer.SetDrawColor(0, 0, 0, 255)
+		renderer.Copy(tex, &sdl.Rect{X: 0, Y: 0, W: 1280, H: 720}, &sdl.Rect{X: -90, Y: 0, W: 1080, H: 600})
+		renderer.Copy(snaps[1], &sdl.Rect{X: 0, Y: 0, W: 430, H: 287}, &sdl.Rect{X: 470, Y: 800, W: 430, H: 287})
+		renderer.Copy(snaps[2], &sdl.Rect{X: 0, Y: 0, W: 430, H: 287}, &sdl.Rect{X: 0, Y: 1237, W: 430, H: 287})
+		renderer.Copy(snaps[3], &sdl.Rect{X: 0, Y: 0, W: 430, H: 287}, &sdl.Rect{X: 470, Y: 1237, W: 430, H: 287})
 
 		if !buttonPressed.IsZero() {
+			if !focus && time.Since(buttonPressed) > time.Millisecond*4000 {
+				focus = true
+				arduino.Write([]byte{'A', '\r', '\n'})
+			}
+			if !lights && time.Since(buttonPressed) > time.Millisecond*3500 {
+				lights = true
+				arduino.Write([]byte{'B', '\r', '\n'})
+			}
+
 			if time.Since(buttonPressed) > time.Millisecond*4500 {
-				// flash a white screen
-				renderer.SetDrawColor(255, 255, 255, 255)
-				renderer.Clear()
-				renderer.Present()
-				renderer.SetDrawColor(0, 0, 0, 255)
-				// re-initialize webcam for high-res shot
-				cam.StopStreaming()
-				cam.Close()
-				if cam, err = initCam(2304, 1536); err != nil {
-					log.Fatalf("failed to re-initialize webcam: %v", err)
-				}
-				cam.WaitForFrame(10)
-				arduino.Write([]byte{'C', '\r', '\n'})
-				if frame, _ := cam.ReadFrame(); frame != nil && len(frame) != 0 {
-					img := &image.YCbCr{
-						Y:              make([]byte, int(2304*1536)),
-						Cb:             make([]byte, int((2304*1536)/2)),
-						Cr:             make([]byte, int((2304*1536)/2)),
-						YStride:        int(2304),
-						CStride:        int(2304 / 2),
-						SubsampleRatio: image.YCbCrSubsampleRatio422,
-						Rect:           image.Rectangle{Min: image.Point{0, 0}, Max: image.Point{int(2304), int(1536)}},
-					}
-					for i := 0; i < int(2304*1536); i++ {
+				if frame != nil && len(frame) != 0 {
+					// flash a white screen
+					renderer.SetDrawColor(255, 255, 255, 255)
+					renderer.Clear()
+					renderer.Present()
+					renderer.SetDrawColor(0, 0, 0, 255)
+					img := image.NewYCbCr(image.Rect(0, 0, 1280, 720), image.YCbCrSubsampleRatio422)
+					for i := 0; i < int(1280*720); i++ {
 						img.Y[i] = frame[i*2]
 						if i%2 == 0 {
 							img.Cb[i/2] = frame[i*2+1]
@@ -194,41 +248,31 @@ func main() {
 							img.Cr[i/2] = frame[i*2+1]
 						}
 					}
-					filename := filepath.Join("snaps", fmt.Sprintf("%d.jpg", time.Now().Unix()))
+					cropped := image.NewRGBA(image.Rect(0, 0, 1080, 720))
+					draw.Draw(cropped, cropped.Bounds(), img, image.Point{80, 0}, draw.Over)
+					filename := filepath.Join(usr.HomeDir, "selfies", "snaps", fmt.Sprintf("%d.jpg", time.Now().Unix()))
 					if fp, err := os.Create(filename); err == nil {
-						jpeg.Encode(fp, img, &jpeg.Options{Quality: 90})
+						jpeg.Encode(fp, cropped, &jpeg.Options{Quality: 90})
 						fp.Close()
 					}
-					// we want to get a 300x200 RGBA snap to display
-					snap := image.NewRGBA(image.Rect(0, 0, 300, 200))
-					draw.Draw(snap, snap.Bounds(), resize.Resize(300, 200, img, resize.Bicubic), image.ZP, draw.Over)
+					snap := image.NewRGBA(image.Rect(0, 0, 430, 287))
+					draw.Draw(snap, snap.Bounds(), resize.Resize(430, 287, cropped, resize.Bicubic), image.ZP, draw.Over)
 					snaps[0], snaps[1], snaps[2], snaps[3] = snaps[3], snaps[0], snaps[1], snaps[2]
-					snaps[0].Update(&sdl.Rect{X: 0, Y: 0, W: 300, H: 200}, snap.Pix, snap.Stride)
+					snaps[0].Update(&sdl.Rect{X: 0, Y: 0, W: 430, H: 287}, snap.Pix, snap.Stride)
 					snapfiles[0], snapfiles[1], snapfiles[2], snapfiles[3] = filename, snapfiles[0], snapfiles[1], snapfiles[2]
+				} else {
+					fmt.Println("BAD FRAME")
 				}
-				// downgrade webcam to streaming size
-				cam.StopStreaming()
-				cam.Close()
-				if cam, err = initCam(320, 240); err != nil {
-					log.Fatalf("failed to re-re-initialize webcam: %v", err)
-				}
-				// unpress button
-				lights, focus, buttonPressed = false, false, time.Time{}
+				arduino.Write([]byte{'C', '\r', '\n'})
+				time.Sleep(time.Millisecond * 200)
 				arduino.Write([]byte{'R', '\r', '\n'})
+				lights, focus, buttonPressed = false, false, time.Time{}
 			} else if time.Since(buttonPressed) > time.Millisecond*3000 {
-				if !focus {
-					focus = true
-					arduino.Write([]byte{'A', '\r', '\n'})
-				}
 				_, _, texWidth, texHeight, _ := texes[0].Query()
 				renderer.Copy(texes[0],
 					&sdl.Rect{X: 0, Y: 0, W: texWidth, H: texHeight},
 					&sdl.Rect{X: (900 - texWidth) / 2, Y: (1600 - texHeight) / 2, W: texWidth, H: texHeight})
 			} else if time.Since(buttonPressed) > time.Millisecond*1500 {
-				if !lights {
-					lights = true
-					arduino.Write([]byte{'B', '\r', '\n'})
-				}
 				_, _, texWidth, texHeight, _ := texes[1].Query()
 				renderer.Copy(texes[1],
 					&sdl.Rect{X: 0, Y: 0, W: texWidth, H: texHeight},
