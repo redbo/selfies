@@ -1,4 +1,4 @@
-package main
+package selfies
 
 import (
 	"fmt"
@@ -11,7 +11,6 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"time"
 
@@ -22,9 +21,7 @@ import (
 	"github.com/veandco/go-sdl2/ttf"
 )
 
-var re = regexp.MustCompile(`<td align="center">(\w+.JPG)</td></tr>`)
-
-func main() {
+func Selfies() {
 	os.Setenv("DISPLAY", ":0")
 
 	if err := sdl.Init(sdl.INIT_EVERYTHING); err != nil {
@@ -201,7 +198,8 @@ func main() {
 				break
 			}
 		}
-		if printing {
+		if snapfiles[0] == "" {
+		} else if printing {
 			renderer.SetDrawColor(uint8(rand.Int()%255), uint8(rand.Int()%255), uint8(rand.Int()%255), 255)
 			renderer.FillRect(&sdl.Rect{X: 0, Y: 800, W: 430, H: 287})
 			renderer.Copy(printingtex,
