@@ -93,7 +93,7 @@ func Selfies() {
 	if err != nil {
 		log.Fatalf("failed to get home dir: %v", err)
 	}
-	font, err := ttf.OpenFont(filepath.Join(usr.HomeDir, "selfies/Raleway-Black.ttf"), 600)
+	font, err := makeFont(600)
 	if err != nil {
 		log.Fatalf("failed to read font: %v", err)
 	}
@@ -110,7 +110,7 @@ func Selfies() {
 		texes[i].SetBlendMode(sdl.BLENDMODE_BLEND)
 	}
 
-	font, err = ttf.OpenFont(filepath.Join(usr.HomeDir, "selfies/Raleway-Black.ttf"), 30)
+	font, err = makeFont(30)
 	if err != nil {
 		log.Fatalf("failed to read font: %v", err)
 	}
