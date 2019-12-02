@@ -21,7 +21,6 @@ import (
 )
 
 type Selfies struct {
-	window      *sdl.Window
 	renderer    *sdl.Renderer
 	cam         *webcam.Webcam
 	tex         *sdl.Texture
@@ -36,15 +35,19 @@ type Selfies struct {
 	cleanups []func() error
 }
 
-func initCam(width, height uint32) (*webcam.Webcam, error) {
+var capFormat = webcam.PixelFormat(1448695129) // V4L2_PIX_FMT_YUYV - YUV 4:2:2
+var capWidth int32 = 1280
+var capHeight int32 = 720
+
+func initCam(width, height int32) (*webcam.Webcam, error) {
 	cam, err := webcam.Open("/dev/video0")
 	if err != nil {
 		return nil, err
 	}
-	if f, cw, ch, err := cam.SetImageFormat(1448695129, width, height); err != nil {
+	if f, cw, ch, err := cam.SetImageFormat(capFormat, uint32(width), uint32(height)); err != nil {
 		cam.Close()
 		return nil, err
-	} else if f != 1448695129 || cw != width || ch != height {
+	} else if f != capFormat || cw != uint32(width) || ch != uint32(height) {
 		cam.Close()
 		return nil, fmt.Errorf("Unknown pixel format %d (%d/%d)", f, cw, ch)
 	}
@@ -63,7 +66,7 @@ func NewSelfies() (*Selfies, error) {
 		s.Close()
 		return nil, fmt.Errorf("failed to create renderer: %v", err)
 	}
-	s.cleanup(s.window.Destroy)
+	s.cleanup(window.Destroy)
 
 	if s.renderer, err = sdl.CreateRenderer(window, -1, sdl.RENDERER_ACCELERATED); err != nil {
 		s.Close()
@@ -72,13 +75,13 @@ func NewSelfies() (*Selfies, error) {
 	s.cleanup(s.renderer.Destroy)
 	s.renderer.Clear()
 
-	if s.cam, err = initCam(1280, 720); err != nil {
+	if s.cam, err = initCam(capWidth, capHeight); err != nil {
 		s.Close()
 		return nil, fmt.Errorf("failed to initialize webcam: %v", err)
 	}
 	s.cleanup(s.cam.Close)
 
-	if s.tex, err = s.renderer.CreateTexture(sdl.PIXELFORMAT_YUY2, sdl.TEXTUREACCESS_STREAMING, int32(1280), int32(720)); err != nil {
+	if s.tex, err = s.renderer.CreateTexture(sdl.PIXELFORMAT_YUY2, sdl.TEXTUREACCESS_STREAMING, int32(capWidth), int32(capHeight)); err != nil {
 		s.Close()
 		return nil, fmt.Errorf("error creating texture: %v", err)
 	}
@@ -176,6 +179,11 @@ func (s *Selfies) Close() {
 	}
 }
 
+func Print(filename string) {
+	exec.Command("/usr/bin/obexftp", "--nopath", "--noconn", "--uuid", "none",
+		"--bluetooth", "C4:30:18:19:C6:3D", "--channel", "4", "-p", filename).Run()
+}
+
 func (s *Selfies) Run() {
 	_, _, printtexWidth, printtexHeight, _ := s.printtex.Query()
 	_, _, printingtexWidth, printingtexHeight, _ := s.printingtex.Query()
@@ -186,7 +194,7 @@ func (s *Selfies) Run() {
 		b := make([]byte, 1)
 		for true {
 			s.arduino.Read(b)
-			if b[0] > ' ' && time.Since(start) > 10*time.Second {
+			if b[0] > ' ' && time.Since(start) > 5*time.Second { // ignore button presses for first few seconds
 				buttonPress <- b[0]
 			}
 		}
@@ -209,8 +217,7 @@ func (s *Selfies) Run() {
 				printCooldown = time.Now()
 				go func() {
 					printnotify <- true
-					exec.Command("/usr/bin/obexftp", "--nopath", "--noconn", "--uuid", "none",
-						"--bluetooth", "C4:30:18:19:C6:3D", "--channel", "4", "-p", s.snapfiles[0]).Run()
+					Print(s.snapfiles[0])
 					printnotify <- false
 				}()
 			}
@@ -221,7 +228,7 @@ func (s *Selfies) Run() {
 		for {
 			if f, _ := s.cam.ReadFrame(); f != nil && len(f) != 0 {
 				frame = f
-				s.tex.Update(&sdl.Rect{X: 0, Y: 0, W: int32(1280), H: int32(720)}, frame, 2*int(1280))
+				s.tex.Update(&sdl.Rect{X: 0, Y: 0, W: int32(capWidth), H: int32(720)}, frame, 2*int(capHeight))
 			} else {
 				break
 			}
@@ -243,21 +250,12 @@ func (s *Selfies) Run() {
 			s.renderer.Copy(s.snaps[0], &sdl.Rect{X: 2, Y: 2, W: 430, H: 287}, &sdl.Rect{X: 2, Y: 802, W: 426, H: 283})
 		}
 		s.renderer.SetDrawColor(0, 0, 0, 255)
-		s.renderer.Copy(s.tex, &sdl.Rect{X: 0, Y: 0, W: 1280, H: 720}, &sdl.Rect{X: -90, Y: 0, W: 1080, H: 600})
+		s.renderer.Copy(s.tex, &sdl.Rect{X: 0, Y: 0, W: capWidth, H: capHeight}, &sdl.Rect{X: -90, Y: 0, W: 1080, H: 600})
 		s.renderer.Copy(s.snaps[1], &sdl.Rect{X: 0, Y: 0, W: 430, H: 287}, &sdl.Rect{X: 470, Y: 800, W: 430, H: 287})
 		s.renderer.Copy(s.snaps[2], &sdl.Rect{X: 0, Y: 0, W: 430, H: 287}, &sdl.Rect{X: 0, Y: 1237, W: 430, H: 287})
 		s.renderer.Copy(s.snaps[3], &sdl.Rect{X: 0, Y: 0, W: 430, H: 287}, &sdl.Rect{X: 470, Y: 1237, W: 430, H: 287})
 
 		if !buttonPressed.IsZero() {
-			if !focus && time.Since(buttonPressed) > time.Millisecond*4000 {
-				focus = true
-				s.arduino.Write([]byte{'A', '\r', '\n'})
-			}
-			if !lights && time.Since(buttonPressed) > time.Millisecond*3500 {
-				lights = true
-				s.arduino.Write([]byte{'B', '\r', '\n'})
-			}
-
 			if time.Since(buttonPressed) > time.Millisecond*4500 {
 				if frame != nil && len(frame) != 0 {
 					// flash a white screen
@@ -265,8 +263,9 @@ func (s *Selfies) Run() {
 					s.renderer.Clear()
 					s.renderer.Present()
 					s.renderer.SetDrawColor(0, 0, 0, 255)
-					img := image.NewYCbCr(image.Rect(0, 0, 1280, 720), image.YCbCrSubsampleRatio422)
-					for i := 0; i < int(1280*720); i++ {
+					filename := filepath.Join(s.savepath, fmt.Sprintf("%d.jpg", time.Now().Unix()))
+					img := image.NewYCbCr(image.Rect(0, 0, int(capWidth), int(capHeight)), image.YCbCrSubsampleRatio422)
+					for i := 0; i < int(capWidth*capHeight); i++ {
 						img.Y[i] = frame[i*2]
 						if i%2 == 0 {
 							img.Cb[i/2] = frame[i*2+1]
@@ -276,9 +275,9 @@ func (s *Selfies) Run() {
 					}
 					cropped := image.NewRGBA(image.Rect(0, 0, 1080, 720))
 					draw.Draw(cropped, cropped.Bounds(), img, image.Point{80, 0}, draw.Over)
-					filename := filepath.Join(s.savepath, fmt.Sprintf("%d.jpg", time.Now().Unix()))
 					if fp, err := os.Create(filename); err == nil {
-						jpeg.Encode(fp, cropped, &jpeg.Options{Quality: 90})
+						jpeg.Encode(fp, cropped, &jpeg.Options{Quality: 95})
+						fp.Sync()
 						fp.Close()
 					}
 					snap := image.NewRGBA(image.Rect(0, 0, 430, 287))
@@ -289,10 +288,10 @@ func (s *Selfies) Run() {
 				} else {
 					fmt.Println("BAD FRAME")
 				}
-				s.arduino.Write([]byte{'C', '\r', '\n'})
+				s.arduino.Write([]byte{'C', '\r', '\n'}) // trigger shutter release
 				time.Sleep(time.Millisecond * 200)
-				s.arduino.Write([]byte{'R', '\r', '\n'})
-				lights, focus, buttonPressed = false, false, time.Time{}
+				s.arduino.Write([]byte{'R', '\r', '\n'})                 // reset all relays
+				lights, focus, buttonPressed = false, false, time.Time{} // reset state machine
 			} else if time.Since(buttonPressed) > time.Millisecond*3000 {
 				_, _, texWidth, texHeight, _ := s.texes[0].Query()
 				s.renderer.Copy(s.texes[0],
@@ -308,6 +307,15 @@ func (s *Selfies) Run() {
 				s.renderer.Copy(s.texes[2],
 					&sdl.Rect{X: 0, Y: 0, W: texWidth, H: texHeight},
 					&sdl.Rect{X: (900 - texWidth) / 2, Y: (1600 - texHeight) / 2, W: texWidth, H: texHeight})
+			}
+
+			if !focus && time.Since(buttonPressed) > time.Millisecond*4000 { // turn on focus lock
+				focus = true
+				s.arduino.Write([]byte{'A', '\r', '\n'})
+			}
+			if !lights && time.Since(buttonPressed) > time.Millisecond*3500 { // turn on lights
+				lights = true
+				s.arduino.Write([]byte{'B', '\r', '\n'})
 			}
 		}
 		s.renderer.Present()
