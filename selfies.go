@@ -179,7 +179,35 @@ func (s *Selfies) Close() {
 	}
 }
 
-func Print(filename string) {
+func frameToImage(frame []byte, width int, height int) image.Image {
+	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio422)
+	for i := 0; i < int(capWidth*capHeight); i++ {
+		img.Y[i] = frame[i*2]
+		if i%2 == 0 {
+			img.Cb[i/2] = frame[i*2+1]
+		} else {
+			img.Cr[i/2] = frame[i*2+1]
+		}
+	}
+	cropped := image.NewRGBA(image.Rect(0, 0, 1080, 720))
+	if height != 720 {
+		resized := resize.Resize(0, 720, img, resize.Bicubic)
+		draw.Draw(cropped, cropped.Bounds(), resized, image.Point{(resized.Bounds().Dx() - 1080) / 2, 0}, draw.Over)
+	} else {
+		draw.Draw(cropped, cropped.Bounds(), img, image.Point{(img.Bounds().Dx() - 1080) / 2, 0}, draw.Over)
+	}
+	return cropped
+}
+
+func saveImage(img image.Image, filename string) {
+	if fp, err := os.Create(filename); err == nil {
+		jpeg.Encode(fp, img, &jpeg.Options{Quality: 95})
+		fp.Sync()
+		fp.Close()
+	}
+}
+
+func printFile(filename string) {
 	exec.Command("/usr/bin/obexftp", "--nopath", "--noconn", "--uuid", "none",
 		"--bluetooth", "C4:30:18:19:C6:3D", "--channel", "4", "-p", filename).Run()
 }
@@ -217,7 +245,7 @@ func (s *Selfies) Run() {
 				printCooldown = time.Now()
 				go func() {
 					printnotify <- true
-					Print(s.snapfiles[0])
+					printFile(s.snapfiles[0])
 					printnotify <- false
 				}()
 			}
@@ -264,22 +292,8 @@ func (s *Selfies) Run() {
 					s.renderer.Present()
 					s.renderer.SetDrawColor(0, 0, 0, 255)
 					filename := filepath.Join(s.savepath, fmt.Sprintf("%d.jpg", time.Now().Unix()))
-					img := image.NewYCbCr(image.Rect(0, 0, int(capWidth), int(capHeight)), image.YCbCrSubsampleRatio422)
-					for i := 0; i < int(capWidth*capHeight); i++ {
-						img.Y[i] = frame[i*2]
-						if i%2 == 0 {
-							img.Cb[i/2] = frame[i*2+1]
-						} else {
-							img.Cr[i/2] = frame[i*2+1]
-						}
-					}
-					cropped := image.NewRGBA(image.Rect(0, 0, 1080, 720))
-					draw.Draw(cropped, cropped.Bounds(), img, image.Point{80, 0}, draw.Over)
-					if fp, err := os.Create(filename); err == nil {
-						jpeg.Encode(fp, cropped, &jpeg.Options{Quality: 95})
-						fp.Sync()
-						fp.Close()
-					}
+					cropped := frameToImage(frame, int(capWidth), int(capHeight))
+					saveImage(cropped, filename)
 					snap := image.NewRGBA(image.Rect(0, 0, 430, 287))
 					draw.Draw(snap, snap.Bounds(), resize.Resize(430, 287, cropped, resize.Bicubic), image.ZP, draw.Over)
 					s.snaps[0], s.snaps[1], s.snaps[2], s.snaps[3] = s.snaps[3], s.snaps[0], s.snaps[1], s.snaps[2]
@@ -293,6 +307,14 @@ func (s *Selfies) Run() {
 				s.arduino.Write([]byte{'R', '\r', '\n'})                 // reset all relays
 				lights, focus, buttonPressed = false, false, time.Time{} // reset state machine
 			} else if time.Since(buttonPressed) > time.Millisecond*3000 {
+				if !focus && time.Since(buttonPressed) > time.Millisecond*4000 { // turn on focus lock
+					focus = true
+					s.arduino.Write([]byte{'A', '\r', '\n'})
+				}
+				if !lights && time.Since(buttonPressed) > time.Millisecond*3500 { // turn on lights
+					lights = true
+					s.arduino.Write([]byte{'B', '\r', '\n'})
+				}
 				_, _, texWidth, texHeight, _ := s.texes[0].Query()
 				s.renderer.Copy(s.texes[0],
 					&sdl.Rect{X: 0, Y: 0, W: texWidth, H: texHeight},
@@ -307,15 +329,6 @@ func (s *Selfies) Run() {
 				s.renderer.Copy(s.texes[2],
 					&sdl.Rect{X: 0, Y: 0, W: texWidth, H: texHeight},
 					&sdl.Rect{X: (900 - texWidth) / 2, Y: (1600 - texHeight) / 2, W: texWidth, H: texHeight})
-			}
-
-			if !focus && time.Since(buttonPressed) > time.Millisecond*4000 { // turn on focus lock
-				focus = true
-				s.arduino.Write([]byte{'A', '\r', '\n'})
-			}
-			if !lights && time.Since(buttonPressed) > time.Millisecond*3500 { // turn on lights
-				lights = true
-				s.arduino.Write([]byte{'B', '\r', '\n'})
 			}
 		}
 		s.renderer.Present()
