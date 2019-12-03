@@ -6,6 +6,7 @@ import (
 	"image/draw"
 	"image/jpeg"
 	"io"
+	"math"
 	"math/rand"
 	"os"
 	"os/exec"
@@ -21,16 +22,18 @@ import (
 )
 
 type Selfies struct {
-	renderer    *sdl.Renderer
-	cam         *webcam.Webcam
-	tex         *sdl.Texture
-	texes       []*sdl.Texture
-	printtex    *sdl.Texture
-	printingtex *sdl.Texture
-	arduino     io.ReadWriteCloser
-	snaps       []*sdl.Texture
-	snapfiles   []string
-	savepath    string
+	screenWidth  int32
+	screenHeight int32
+	renderer     *sdl.Renderer
+	cam          *webcam.Webcam
+	tex          *sdl.Texture
+	texes        []*sdl.Texture
+	printtex     *sdl.Texture
+	printingtex  *sdl.Texture
+	arduino      io.ReadWriteCloser
+	snaps        []*sdl.Texture
+	snapfiles    []string
+	savepath     string
 
 	cleanups []func() error
 }
@@ -59,9 +62,12 @@ func initCam(width, height int32) (*webcam.Webcam, error) {
 }
 
 func NewSelfies() (*Selfies, error) {
-	s := &Selfies{}
+	s := &Selfies{
+		screenWidth:  900,
+		screenHeight: 1600,
+	}
 	window, err := sdl.CreateWindow("SELFIES", sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED,
-		900, 1600, sdl.WINDOW_SHOWN|sdl.WINDOW_FULLSCREEN|sdl.WINDOW_BORDERLESS)
+		s.screenWidth, s.screenHeight, sdl.WINDOW_SHOWN|sdl.WINDOW_FULLSCREEN|sdl.WINDOW_BORDERLESS)
 	if err != nil {
 		s.Close()
 		return nil, fmt.Errorf("failed to create renderer: %v", err)
@@ -212,9 +218,26 @@ func printFile(filename string) {
 		"--bluetooth", "C4:30:18:19:C6:3D", "--channel", "4", "-p", filename).Run()
 }
 
+func (s *Selfies) drawCountdown(buttonPressed time.Time) {
+	if time.Since(buttonPressed) > time.Millisecond*3000 {
+		_, _, texWidth, texHeight, _ := s.texes[0].Query()
+		s.renderer.Copy(s.texes[0],
+			&sdl.Rect{X: 0, Y: 0, W: texWidth, H: texHeight},
+			&sdl.Rect{X: (s.screenWidth - texWidth) / 2, Y: (s.screenHeight - texHeight) / 2, W: texWidth, H: texHeight})
+	} else if time.Since(buttonPressed) > time.Millisecond*1500 {
+		_, _, texWidth, texHeight, _ := s.texes[1].Query()
+		s.renderer.Copy(s.texes[1],
+			&sdl.Rect{X: 0, Y: 0, W: texWidth, H: texHeight},
+			&sdl.Rect{X: (s.screenWidth - texWidth) / 2, Y: (s.screenHeight - texHeight) / 2, W: texWidth, H: texHeight})
+	} else {
+		_, _, texWidth, texHeight, _ := s.texes[2].Query()
+		s.renderer.Copy(s.texes[2],
+			&sdl.Rect{X: 0, Y: 0, W: texWidth, H: texHeight},
+			&sdl.Rect{X: (s.screenWidth - texWidth) / 2, Y: (s.screenHeight - texHeight) / 2, W: texWidth, H: texHeight})
+	}
+}
+
 func (s *Selfies) Run() {
-	_, _, printtexWidth, printtexHeight, _ := s.printtex.Query()
-	_, _, printingtexWidth, printingtexHeight, _ := s.printingtex.Query()
 	buttonPress := make(chan byte)
 
 	go func() {
@@ -261,29 +284,44 @@ func (s *Selfies) Run() {
 				break
 			}
 		}
-		if s.snapfiles[0] == "" {
-		} else if printing {
-			s.renderer.SetDrawColor(uint8(rand.Int()%255), uint8(rand.Int()%255), uint8(rand.Int()%255), 255)
-			s.renderer.FillRect(&sdl.Rect{X: 0, Y: 800, W: 430, H: 287})
-			s.renderer.Copy(s.printingtex,
-				&sdl.Rect{X: 0, Y: 0, W: printingtexWidth, H: printingtexHeight},
-				&sdl.Rect{X: (430 - printingtexWidth) / 2, Y: (800 - printingtexHeight), W: printingtexWidth, H: printingtexHeight})
-			s.renderer.Copy(s.snaps[0], &sdl.Rect{X: 2, Y: 2, W: 430, H: 287}, &sdl.Rect{X: 10, Y: 810, W: 410, H: 267})
-		} else {
-			s.renderer.SetDrawColor(255, 255, 0, 255)
-			s.renderer.FillRect(&sdl.Rect{X: 0, Y: 800, W: 430, H: 287})
-			s.renderer.Copy(s.printtex,
-				&sdl.Rect{X: 0, Y: 0, W: printtexWidth, H: printtexHeight},
-				&sdl.Rect{X: (430 - printtexWidth) / 2, Y: (800 - printtexHeight), W: printtexWidth, H: printtexHeight})
-			s.renderer.Copy(s.snaps[0], &sdl.Rect{X: 2, Y: 2, W: 430, H: 287}, &sdl.Rect{X: 2, Y: 802, W: 426, H: 283})
+		snapWidth := int32((s.screenWidth - 40) / 2)
+		snapHeight := int32(int(math.Round((float64(snapWidth) / 3) * 2)))
+		if s.snapfiles[0] != "" {
+			var tex *sdl.Texture
+			if printing {
+				s.renderer.SetDrawColor(uint8(rand.Int()%255), uint8(rand.Int()%255), uint8(rand.Int()%255), 255)
+				tex = s.printingtex
+			} else {
+				s.renderer.SetDrawColor(255, 255, 0, 255)
+				tex = s.printtex
+			}
+			_, _, texWidth, texHeight, _ := tex.Query()
+			s.renderer.FillRect(&sdl.Rect{X: 0, Y: 800, W: snapWidth, H: snapHeight})
+			s.renderer.Copy(tex,
+				&sdl.Rect{X: 0, Y: 0, W: texWidth, H: texHeight},
+				&sdl.Rect{X: (snapWidth - texWidth) / 2, Y: (800 - texHeight), W: texWidth, H: texHeight})
+			s.renderer.Copy(s.snaps[0], &sdl.Rect{X: 2, Y: 2, W: snapWidth, H: snapHeight},
+				&sdl.Rect{X: 2, Y: 802, W: 426, H: 283})
 		}
 		s.renderer.SetDrawColor(0, 0, 0, 255)
-		s.renderer.Copy(s.tex, &sdl.Rect{X: 0, Y: 0, W: capWidth, H: capHeight}, &sdl.Rect{X: -90, Y: 0, W: 1080, H: 600})
-		s.renderer.Copy(s.snaps[1], &sdl.Rect{X: 0, Y: 0, W: 430, H: 287}, &sdl.Rect{X: 470, Y: 800, W: 430, H: 287})
-		s.renderer.Copy(s.snaps[2], &sdl.Rect{X: 0, Y: 0, W: 430, H: 287}, &sdl.Rect{X: 0, Y: 1237, W: 430, H: 287})
-		s.renderer.Copy(s.snaps[3], &sdl.Rect{X: 0, Y: 0, W: 430, H: 287}, &sdl.Rect{X: 470, Y: 1237, W: 430, H: 287})
+		s.renderer.Copy(s.tex, &sdl.Rect{X: 0, Y: 0, W: capWidth, H: capHeight},
+			&sdl.Rect{X: -90, Y: 0, W: 1080, H: 600})
+		s.renderer.Copy(s.snaps[1], &sdl.Rect{X: 0, Y: 0, W: snapWidth, H: snapHeight},
+			&sdl.Rect{X: 470, Y: 800, W: snapWidth, H: snapHeight})
+		s.renderer.Copy(s.snaps[2], &sdl.Rect{X: 0, Y: 0, W: snapWidth, H: snapHeight},
+			&sdl.Rect{X: 0, Y: 1237, W: snapWidth, H: snapHeight})
+		s.renderer.Copy(s.snaps[3], &sdl.Rect{X: 0, Y: 0, W: snapWidth, H: snapHeight},
+			&sdl.Rect{X: 470, Y: 1237, W: snapWidth, H: snapHeight})
 
 		if !buttonPressed.IsZero() {
+			if !focus && time.Since(buttonPressed) > time.Millisecond*4000 { // turn on focus lock
+				focus = true
+				s.arduino.Write([]byte{'A', '\r', '\n'})
+			}
+			if !lights && time.Since(buttonPressed) > time.Millisecond*3500 { // turn on lights
+				lights = true
+				s.arduino.Write([]byte{'B', '\r', '\n'})
+			}
 			if time.Since(buttonPressed) > time.Millisecond*4500 {
 				if frame != nil && len(frame) != 0 {
 					// flash a white screen
@@ -294,10 +332,12 @@ func (s *Selfies) Run() {
 					filename := filepath.Join(s.savepath, fmt.Sprintf("%d.jpg", time.Now().Unix()))
 					cropped := frameToImage(frame, int(capWidth), int(capHeight))
 					saveImage(cropped, filename)
-					snap := image.NewRGBA(image.Rect(0, 0, 430, 287))
-					draw.Draw(snap, snap.Bounds(), resize.Resize(430, 287, cropped, resize.Bicubic), image.ZP, draw.Over)
+					snap := image.NewRGBA(image.Rect(0, 0, int(snapWidth), int(snapHeight)))
+					draw.Draw(snap, snap.Bounds(),
+						resize.Resize(uint(snapWidth), uint(snapHeight), cropped, resize.Bicubic),
+						image.ZP, draw.Over)
 					s.snaps[0], s.snaps[1], s.snaps[2], s.snaps[3] = s.snaps[3], s.snaps[0], s.snaps[1], s.snaps[2]
-					s.snaps[0].Update(&sdl.Rect{X: 0, Y: 0, W: 430, H: 287}, snap.Pix, snap.Stride)
+					s.snaps[0].Update(&sdl.Rect{X: 0, Y: 0, W: snapWidth, H: snapHeight}, snap.Pix, snap.Stride)
 					s.snapfiles[0], s.snapfiles[1], s.snapfiles[2], s.snapfiles[3] = filename, s.snapfiles[0], s.snapfiles[1], s.snapfiles[2]
 				} else {
 					fmt.Println("BAD FRAME")
@@ -306,29 +346,8 @@ func (s *Selfies) Run() {
 				time.Sleep(time.Millisecond * 200)
 				s.arduino.Write([]byte{'R', '\r', '\n'})                 // reset all relays
 				lights, focus, buttonPressed = false, false, time.Time{} // reset state machine
-			} else if time.Since(buttonPressed) > time.Millisecond*3000 {
-				if !focus && time.Since(buttonPressed) > time.Millisecond*4000 { // turn on focus lock
-					focus = true
-					s.arduino.Write([]byte{'A', '\r', '\n'})
-				}
-				if !lights && time.Since(buttonPressed) > time.Millisecond*3500 { // turn on lights
-					lights = true
-					s.arduino.Write([]byte{'B', '\r', '\n'})
-				}
-				_, _, texWidth, texHeight, _ := s.texes[0].Query()
-				s.renderer.Copy(s.texes[0],
-					&sdl.Rect{X: 0, Y: 0, W: texWidth, H: texHeight},
-					&sdl.Rect{X: (900 - texWidth) / 2, Y: (1600 - texHeight) / 2, W: texWidth, H: texHeight})
-			} else if time.Since(buttonPressed) > time.Millisecond*1500 {
-				_, _, texWidth, texHeight, _ := s.texes[1].Query()
-				s.renderer.Copy(s.texes[1],
-					&sdl.Rect{X: 0, Y: 0, W: texWidth, H: texHeight},
-					&sdl.Rect{X: (900 - texWidth) / 2, Y: (1600 - texHeight) / 2, W: texWidth, H: texHeight})
 			} else {
-				_, _, texWidth, texHeight, _ := s.texes[2].Query()
-				s.renderer.Copy(s.texes[2],
-					&sdl.Rect{X: 0, Y: 0, W: texWidth, H: texHeight},
-					&sdl.Rect{X: (900 - texWidth) / 2, Y: (1600 - texHeight) / 2, W: texWidth, H: texHeight})
+				s.drawCountdown(buttonPressed)
 			}
 		}
 		s.renderer.Present()
