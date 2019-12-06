@@ -219,22 +219,18 @@ func printFile(filename string) {
 }
 
 func (s *Selfies) drawCountdown(buttonPressed time.Time) {
+	var tex *sdl.Texture
 	if time.Since(buttonPressed) > time.Millisecond*3000 {
-		_, _, texWidth, texHeight, _ := s.texes[0].Query()
-		s.renderer.Copy(s.texes[0],
-			&sdl.Rect{X: 0, Y: 0, W: texWidth, H: texHeight},
-			&sdl.Rect{X: (s.screenWidth - texWidth) / 2, Y: (s.screenHeight - texHeight) / 2, W: texWidth, H: texHeight})
+		tex = s.texes[0]
 	} else if time.Since(buttonPressed) > time.Millisecond*1500 {
-		_, _, texWidth, texHeight, _ := s.texes[1].Query()
-		s.renderer.Copy(s.texes[1],
-			&sdl.Rect{X: 0, Y: 0, W: texWidth, H: texHeight},
-			&sdl.Rect{X: (s.screenWidth - texWidth) / 2, Y: (s.screenHeight - texHeight) / 2, W: texWidth, H: texHeight})
+		tex = s.texes[1]
 	} else {
-		_, _, texWidth, texHeight, _ := s.texes[2].Query()
-		s.renderer.Copy(s.texes[2],
-			&sdl.Rect{X: 0, Y: 0, W: texWidth, H: texHeight},
-			&sdl.Rect{X: (s.screenWidth - texWidth) / 2, Y: (s.screenHeight - texHeight) / 2, W: texWidth, H: texHeight})
+		tex = s.texes[2]
 	}
+	_, _, texWidth, texHeight, _ := tex.Query()
+	s.renderer.Copy(tex,
+		&sdl.Rect{X: 0, Y: 0, W: texWidth, H: texHeight},
+		&sdl.Rect{X: (s.screenWidth - texWidth) / 2, Y: (s.screenHeight - texHeight) / 2, W: texWidth, H: texHeight})
 }
 
 func (s *Selfies) Run() {
