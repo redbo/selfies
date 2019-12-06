@@ -62,12 +62,10 @@ func initCam(width, height int32) (*webcam.Webcam, error) {
 }
 
 func NewSelfies() (*Selfies, error) {
-	s := &Selfies{
-		screenWidth:  900,
-		screenHeight: 1600,
-	}
+	s := &Selfies{}
 	window, err := sdl.CreateWindow("SELFIES", sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED,
-		s.screenWidth, s.screenHeight, sdl.WINDOW_SHOWN|sdl.WINDOW_FULLSCREEN|sdl.WINDOW_BORDERLESS)
+		100, 100, sdl.WINDOW_SHOWN|sdl.WINDOW_FULLSCREEN_DESKTOP|sdl.WINDOW_BORDERLESS)
+	s.screenWidth, s.screenHeight = window.GetSize()
 	if err != nil {
 		s.Close()
 		return nil, fmt.Errorf("failed to create renderer: %v", err)
